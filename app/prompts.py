@@ -88,6 +88,97 @@ Respond with ONLY the intent label (e.g. "rag_qa"). Nothing else.
 
 
 # ============================================================================
+# Retrieval Query Rewriting Prompt
+# ============================================================================
+
+RAG_QUERY_REWRITE_PROMPT = """\
+Rewrite the user's message into a concise retrieval query for a relationship
+support knowledge base.
+
+Constraints:
+- Keep the same intent and emotional context.
+- Include concrete topic words (e.g. trust, communication, breakup, conflict)
+  when present.
+- Keep it under 25 words.
+- Output only the rewritten query text.
+
+Recent conversation:
+{history}
+
+Structured profile memory:
+{profile_context}
+
+User message:
+{user_message}
+"""
+
+
+# ============================================================================
+# Therapist Example Tailoring Prompt (for UI source explanation)
+# ============================================================================
+
+THERAPIST_EXAMPLE_TAILORING_PROMPT = """\
+You are generating concise UI explanations for retrieved therapist examples.
+
+Task:
+- For each example, write exactly one sentence explaining how that example
+  relates to the current user's situation.
+- Keep each sentence practical and specific.
+- Do not mention model internals, retrieval scores, or confidence values.
+- Do not repeat the example title verbatim.
+- Keep each line under 25 words.
+
+Output format:
+- Return one line per example.
+- No numbering, no bullets, no headers.
+
+User message:
+{user_message}
+
+Recent conversation:
+{history}
+
+Profile context:
+{profile_context}
+
+Examples:
+{example_summaries}
+"""
+
+
+# ============================================================================
+# Relationship Tip Card Prompt
+# ============================================================================
+
+RELATIONSHIP_TIP_CARD_PROMPT = """\
+Create content for a compact relationship tip card based on retrieved therapist examples.
+
+Requirements:
+- Output 1 to 3 lines, each one is an actionable suggestion.
+- Each line must be a phrase or one short sentence (max 18 words).
+- Suggestions must be tailored to the user's situation.
+- Synthesize ideas from the examples, but do NOT copy therapist text verbatim.
+- Avoid generic filler.
+
+Output format:
+- Return only non-empty actionable lines (up to 3).
+- No numbering, no bullets, no headers.
+
+User message:
+{user_message}
+
+Recent conversation:
+{history}
+
+Profile context:
+{profile_context}
+
+Retrieved examples:
+{example_summaries}
+"""
+
+
+# ============================================================================
 # RAG Answer Synthesis Prompt
 # ============================================================================
 
@@ -127,6 +218,9 @@ IMPORTANT:
 
 Conversation history:
 {history}
+
+Structured profile memory:
+{profile_context}
 
 User's message: {user_message}
 
@@ -208,6 +302,9 @@ use when talking to their partner.
 Here is the full conversation so far:
 {conversation_history}
 
+Structured profile memory:
+{profile_context}
+
 The user's latest request: {user_message}
 
 Using the SPECIFIC details from this conversation — the exact issues discussed, \
@@ -256,6 +353,9 @@ User's message: {user_message}
 
 Recent conversation context:
 {conversation_context}
+
+Structured profile memory:
+{profile_context}
 
 Start with a brief, warm acknowledgement of their situation (1–2 sentences). Then \
 provide the following sections:

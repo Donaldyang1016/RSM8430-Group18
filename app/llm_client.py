@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import time
 
 import requests
 
@@ -44,7 +45,14 @@ TEMPERATURE: float = float(os.environ.get("LLM_TEMPERATURE", "0.7"))
 # Core generation function
 # ---------------------------------------------------------------------------
 
-def generate_text(system_prompt: str, user_prompt: str) -> str:
+def generate_text(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    timeout_seconds: int = 60,
+    retries: int = 2,
+) -> str:
     """
     Send a system + user message to the LLM and return the assistant's reply.
 
@@ -70,15 +78,31 @@ def generate_text(system_prompt: str, user_prompt: str) -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "max_tokens": MAX_TOKENS,
-        "temperature": TEMPERATURE,
+        "max_tokens": max_tokens if max_tokens is not None else MAX_TOKENS,
+        "temperature": temperature if temperature is not None else TEMPERATURE,
     }
 
-    resp = requests.post(url, json=payload, headers=headers, timeout=60)
-    resp.raise_for_status()
+    last_error: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=timeout_seconds,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            try:
+                return data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError) as exc:
+                raise RuntimeError(f"Unexpected LLM response format: {data}") from exc
+        except (requests.RequestException, RuntimeError) as exc:
+            last_error = exc
+            if attempt >= retries:
+                break
+            time.sleep(0.4 * (attempt + 1))
 
-    data = resp.json()
-    try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError) as exc:
-        raise RuntimeError(f"Unexpected LLM response format: {data}") from exc
+    if last_error:
+        raise last_error
+    raise RuntimeError("LLM request failed with unknown error.")

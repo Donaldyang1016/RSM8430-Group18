@@ -158,8 +158,10 @@ def load_messages(session_id: str, limit: int = 50) -> list[dict[str, Any]]:
     conn = _get_conn()
     try:
         rows = conn.execute(
-            "SELECT role, content, intent, created_at FROM messages "
-            "WHERE session_id = ? ORDER BY created_at ASC, id ASC LIMIT ?",
+            "SELECT role, content, intent, created_at FROM ("
+            "  SELECT role, content, intent, created_at, id FROM messages "
+            "  WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?"
+            ") ORDER BY created_at ASC, id ASC",
             (session_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -280,3 +282,41 @@ def get_latest_saved_plan(session_id: str) -> dict[str, Any] | None:
     """Return the most recently saved plan, or None."""
     plans = get_saved_plans(session_id)
     return plans[0] if plans else None
+
+
+# ---------------------------------------------------------------------------
+# User Profile Memory
+# ---------------------------------------------------------------------------
+
+def load_user_profile(session_id: str) -> dict[str, Any]:
+    """Load structured profile memory for a session (empty dict if none)."""
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT profile_json FROM user_profiles WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return {}
+        return json.loads(row["profile_json"])
+    finally:
+        conn.close()
+
+
+def save_user_profile(session_id: str, profile: dict[str, Any]) -> None:
+    """Upsert structured profile memory for a session."""
+    profile_json = json.dumps(profile, ensure_ascii=False)
+    now = _now()
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO user_profiles (session_id, profile_json, updated_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(session_id) DO UPDATE SET "
+            "  profile_json = excluded.profile_json, "
+            "  updated_at = excluded.updated_at",
+            (session_id, profile_json, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()

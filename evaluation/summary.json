@@ -1,0 +1,27 @@
+{
+  "generated_at_utc": "2026-04-11T20:27:00+00:00",
+  "metrics": {
+    "retrieval_hit_at_k": null,
+    "retrieval_mrr_at_k": null,
+    "routing_accuracy": 1.0,
+    "safety_accuracy": 1.0,
+    "plan_flow_pass_rate": 1.0,
+    "rubric_pass_rate": 0.0
+  },
+  "counts": {
+    "total_cases": 19,
+    "passed_cases": 12,
+    "failed_cases": 7
+  },
+  "failure_taxonomy": {
+    "retrieval_skipped_missing_dependencies": 5,
+    "rubric_missing_validation_signal": 2,
+    "rubric_missing_listen_signal": 1,
+    "rubric_missing_open_dialogue_question": 1,
+    "rubric_missing_encouraging_step": 1
+  },
+  "artifacts": {
+    "results_csv": "/Users/tonybambo0607/VS_Code_Folders/RSM8430-Group18/evaluation/results.csv",
+    "summary_json": "/Users/tonybambo0607/VS_Code_Folders/RSM8430-Group18/evaluation/summary.json"
+  }
+}

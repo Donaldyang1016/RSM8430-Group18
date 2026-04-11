@@ -19,6 +19,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from agent.memory import SessionMemory
@@ -72,6 +73,35 @@ def _has_rich_context(memory: SessionMemory) -> bool:
     return len(user_messages) >= _CONTEXT_RICH_THRESHOLD
 
 
+def _looks_like_plan_request(text: str) -> bool:
+    """Detect whether a message is primarily requesting plan generation."""
+    lower = text.lower().strip()
+    patterns = [
+        r"\b(build|create|make)\s+(a\s+|my\s+)?(conversation\s+)?plan\b",
+        r"\bhelp\s+me\s+(build|create|make|prepare|with)\s+(a\s+)?(conversation\s+)?plan\b",
+        r"\bprepare\s+(for\s+)?(a\s+)?(difficult|hard|tough)?\s*conversation\b",
+        r"\bconversation\s+plan\b",
+    ]
+    return any(re.search(pattern, lower) for pattern in patterns)
+
+
+def _extract_issue_from_plan_request(text: str) -> str | None:
+    """
+    Extract an issue from natural messages like:
+    "help me build a plan about feeling unheard in my relationship".
+    """
+    match = re.search(r"\b(?:about|regarding|on)\b[:\s]+(.+)", text, re.IGNORECASE)
+    if not match:
+        return None
+
+    issue = match.group(1).strip().strip(".!?")
+    if len(issue.split()) < 3:
+        return None
+    if _looks_like_plan_request(issue):
+        return None
+    return issue
+
+
 def handle_build_plan(
     user_input: str,
     memory: SessionMemory,
@@ -92,8 +122,12 @@ def handle_build_plan(
       {"type": "follow_up", "message": "...", "slots": {...}}
       {"type": "plan", "plan": {...}, "message": "..."}
     """
+    state = memory.get_action_state()
+
     # --- Path 1: Context-aware plan from conversation history ---
-    if _has_rich_context(memory):
+    # Only use this path when we are NOT already in slot-filling flow.
+    in_slot_flow = bool(state and state.get("current_intent") == "build_plan")
+    if not in_slot_flow and _has_rich_context(memory):
         # Clear any stale slot-filling state
         memory.clear_action_state()
         plan = _generate_plan_from_context(user_input, memory, llm_fn)
@@ -104,17 +138,30 @@ def handle_build_plan(
         }
 
     # --- Path 2: Cold-start slot-filling ---
-    state = memory.get_action_state()
-
     if state and state.get("current_intent") == "build_plan":
         slots = dict(state.get("slots", {}))
+        is_new_flow = False
     else:
         slots = {}
+        is_new_flow = True
+
+    # New cold-start plan request: avoid storing trigger text as the "issue".
+    if is_new_flow:
+        prefilled_issue = _extract_issue_from_plan_request(user_input)
+        if prefilled_issue:
+            slots["issue"] = prefilled_issue
+        else:
+            memory.set_action_state("build_plan", slots)
+            return {
+                "type": "follow_up",
+                "message": _SLOT_QUESTIONS["issue"],
+                "slots": slots,
+            }
 
     # Fill the next empty required slot
     next_empty = _next_missing_slot(slots)
 
-    if next_empty and user_input.strip():
+    if not is_new_flow and next_empty and user_input.strip():
         # The user is answering the question for the next empty slot
         slots[next_empty] = user_input.strip()
 
@@ -159,9 +206,11 @@ def _generate_plan_from_context(
     Used when the user has already described their situation in detail.
     """
     conversation_history = memory.get_history_for_prompt(limit=20)
+    profile_context = memory.get_profile_for_prompt()
 
     prompt = BUILD_PLAN_FROM_CONTEXT_PROMPT.format(
         conversation_history=conversation_history,
+        profile_context=profile_context,
         user_message=user_input,
     )
 
@@ -375,10 +424,12 @@ def handle_reflection(
     Single-turn: no slot-filling required.
     """
     history = memory.get_history_for_prompt(limit=6)
+    profile_context = memory.get_profile_for_prompt()
 
     prompt = REFLECTION_PROMPT.format(
         user_message=user_input,
         conversation_context=history if history else "No prior context.",
+        profile_context=profile_context,
     )
 
     try:

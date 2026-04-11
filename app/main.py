@@ -3,23 +3,14 @@
 L.O.V.E. Relationship Support Agent — Streamlit App
 RSM 8430 Group 18
 ================================================================================
-
-Main entry point.  Run with:
-    streamlit run app/main.py
-
-Wires together:
-  - RAG retriever (rag/)
-  - Intent router + actions + safety (agent/)
-  - SQLite persistence (state/)
-  - Prompt templates (app/prompts.py)
-  - LLM client (app/llm_client.py)
 """
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 from pathlib import Path
-from typing import Any
 
 from dotenv import load_dotenv
 
@@ -28,10 +19,6 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import streamlit as st
 
-# ---------------------------------------------------------------------------
-# Ensure project root is on sys.path so imports like "rag.retriever" work
-# regardless of where Streamlit is launched from.
-# ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -47,6 +34,8 @@ from agent.router import classify_intent
 from agent.safety import screen_message
 from app.llm_client import generate_text
 from app.prompts import (
+    RAG_QUERY_REWRITE_PROMPT,
+    RELATIONSHIP_TIP_CARD_PROMPT,
     RAG_SYNTHESIS_PROMPT,
     RAG_WEAK_MATCH_RESPONSE,
     SYSTEM_PROMPT,
@@ -55,67 +44,204 @@ from rag.formatting import format_citations, format_for_llm
 from rag.retriever import get_retriever
 from state.store import get_or_create_session, init_db, list_sessions
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-DISTANCE_THRESHOLD = 0.55  # cosine distance above which results are "weak"
+DISTANCE_THRESHOLD = 0.55
+HYBRID_THRESHOLD = 0.18
 
+SITUATION_PHRASES: dict[str, list[str]] = {
+    "Trust": [
+        "I found messages that made me question trust.",
+        "My partner broke a promise and I feel guarded.",
+        "I keep checking for reassurance and feel anxious.",
+        "We said we'd move forward, but I still feel hurt.",
+    ],
+    "Conflict": [
+        "We keep fighting about the same issue every week.",
+        "Small disagreements escalate into personal attacks.",
+        "One of us shuts down while the other pushes harder.",
+        "We argue in circles and never resolve anything.",
+    ],
+    "Communication": [
+        "I feel unheard when I try to explain my feelings.",
+        "My message comes out harsh even when I mean well.",
+        "Hard conversations end before we understand each other.",
+        "I avoid topics because they always go badly.",
+    ],
+    "Boundaries": [
+        "I said a limit, but it keeps getting crossed.",
+        "I feel guilty when I try to say no.",
+        "Family or friends are affecting our relationship boundaries.",
+        "I need a respectful way to set non-negotiables.",
+    ],
+    "Breakup": [
+        "I think we should break up but I feel conflicted.",
+        "We already broke up, and I don't know how to cope.",
+        "We still live together and need a breakup plan.",
+        "I want to end things without causing more harm.",
+    ],
+    "Emotional Distance": [
+        "We feel like roommates instead of partners.",
+        "Affection and connection have dropped off lately.",
+        "I miss closeness but don't know how to ask for it.",
+        "We're polite, but it feels emotionally flat.",
+    ],
+}
 
-# ============================================================================
-# Page config & styling
-# ============================================================================
+SITUATION_FOLLOWUPS: dict[str, str] = {
+    "Trust": (
+        "Thank you for sharing this trust concern. Could you tell me what happened, "
+        "when it happened, and what repair attempts have already been tried?"
+    ),
+    "Conflict": (
+        "Thanks for naming this conflict pattern. What is the recurring trigger, "
+        "how does escalation usually unfold, and what outcome do you want from the next conversation?"
+    ),
+    "Communication": (
+        "I hear you. What exact moment recently felt most misunderstood, how did each of you respond, "
+        "and what would feeling heard look like for you?"
+    ),
+    "Boundaries": (
+        "Thanks for sharing this boundary situation. Which boundary is being crossed, "
+        "how have you communicated it so far, and what consequence or next step feels fair to you?"
+    ),
+    "Breakup": (
+        "I’m with you in this difficult breakup moment. What stage are you in right now, "
+        "what constraints do you need to manage, and what support do you need most this week?"
+    ),
+    "Emotional Distance": (
+        "Thank you for sharing this emotional distance concern. When did this shift begin, "
+        "what signs of disconnection you notice most, and what kind of reconnection would feel meaningful?"
+    ),
+}
 
 st.set_page_config(
     page_title="L.O.V.E. — Relationship Support Agent",
     page_icon="💬",
-    layout="centered",
+    layout="wide",
 )
 
 
-# ============================================================================
-# Initialise database & session
-# ============================================================================
-
 @st.cache_resource
 def _init_once() -> None:
-    """Run heavy one-time setup."""
     init_db()
 
-_init_once()
+
+def _inject_styles() -> None:
+    st.markdown(
+        """
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+
+            :root {
+                --love-bg: #f7f1e8;
+                --love-card: #fffaf3;
+                --love-ink: #2a1d11;
+                --love-soft: #7c5f46;
+                --love-accent: #c86e3b;
+                --love-accent-2: #2e6d63;
+                --love-line: #e7d8c8;
+            }
+
+            .stApp {
+                background:
+                    radial-gradient(circle at 15% 20%, #f3d8bf 0%, rgba(243,216,191,0.0) 34%),
+                    radial-gradient(circle at 80% 15%, #cde2d9 0%, rgba(205,226,217,0.0) 33%),
+                    linear-gradient(180deg, #fbf7f2 0%, var(--love-bg) 100%);
+                color: var(--love-ink);
+                font-family: "Source Sans 3", sans-serif;
+            }
+
+            h1, h2, h3 {
+                font-family: "Fraunces", serif !important;
+                color: var(--love-ink);
+            }
+
+            div[data-testid="stSidebar"] {
+                background: linear-gradient(180deg, #fff8f0 0%, #f4ede4 100%);
+                border-right: 1px solid var(--love-line);
+            }
+
+            .love-hero {
+                background: linear-gradient(120deg, #fff8ef 0%, #fbe9d8 45%, #e6f1ec 100%);
+                border: 1px solid var(--love-line);
+                border-radius: 20px;
+                padding: 22px 24px;
+                box-shadow: 0 12px 30px rgba(65, 42, 24, 0.08);
+                margin-bottom: 8px;
+                animation: fadeUp 320ms ease-out;
+            }
+
+            .love-hero h2 {
+                margin: 0;
+                font-size: 1.85rem;
+                line-height: 1.2;
+                color: var(--love-ink);
+            }
+
+            .love-hero p {
+                margin: 10px 0 0;
+                color: var(--love-soft);
+                font-size: 1.05rem;
+            }
+
+            @keyframes fadeUp {
+                from { transform: translateY(8px); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _ensure_session() -> str:
-    """Bootstrap or restore a session ID in Streamlit session_state."""
     if "session_id" not in st.session_state:
         st.session_state.session_id = get_or_create_session()
     return st.session_state.session_id
 
 
-# ============================================================================
-# Sidebar — session management & info
-# ============================================================================
+def _load_messages_into_state(memory: SessionMemory) -> None:
+    if "messages" not in st.session_state or not st.session_state.messages:
+        history = memory.get_history(limit=150)
+        st.session_state.messages = [
+            {"role": m["role"], "content": m["content"]}
+            for m in history
+        ]
+    if "latest_plan" not in st.session_state:
+        st.session_state.latest_plan = None
+    if "pending_user_message" not in st.session_state:
+        st.session_state.pending_user_message = ""
 
-def _render_sidebar() -> None:
+
+def _post_guided_situation_turn(memory: SessionMemory, situation: str, phrase: str) -> None:
+    user_message = phrase.strip()
+    follow_up = SITUATION_FOLLOWUPS.get(
+        situation,
+        "Thanks for sharing. Could you tell me what happened, what matters most to you, and what support you want next?",
+    )
+
+    st.session_state.messages.append({"role": "user", "content": user_message})
+    st.session_state.messages.append({"role": "assistant", "content": follow_up})
+    memory.add_user_message(user_message, intent="guided_situation")
+    memory.add_assistant_message(follow_up, intent="guided_followup")
+    st.session_state.pending_user_message = ""
+
+
+def _render_sidebar(memory: SessionMemory) -> None:
     with st.sidebar:
-        st.markdown("## 💬 L.O.V.E.")
+        st.markdown("## L.O.V.E.")
         st.caption("Listen · Open Dialogue · Validate · Encourage")
         st.divider()
 
-        # Session info
-        sid = _ensure_session()
-        st.markdown(f"**Session:** `{sid}`")
+        sid = memory.session_id
 
-        # New session button
-        if st.button("🆕 New Session"):
-            new_sid = get_or_create_session()
-            st.session_state.session_id = new_sid
+        if st.button("Start New Session", use_container_width=True):
+            st.session_state.session_id = get_or_create_session()
             st.session_state.messages = []
             st.session_state.latest_plan = None
+            st.session_state.pending_user_message = ""
             st.rerun()
 
-        # Load previous session
-        st.divider()
-        st.markdown("**Load a previous session:**")
+        st.markdown("**Resume Session**")
         sessions = list_sessions()
         session_ids = [s["session_id"] for s in sessions]
         if session_ids:
@@ -125,159 +251,289 @@ def _render_sidebar() -> None:
                 index=session_ids.index(sid) if sid in session_ids else 0,
                 label_visibility="collapsed",
             )
-            if selected != sid:
-                if st.button("Load Session"):
-                    st.session_state.session_id = selected
-                    st.session_state.messages = []
-                    st.session_state.latest_plan = None
-                    st.rerun()
+            if selected != sid and st.button("Load Selected Session", use_container_width=True):
+                st.session_state.session_id = selected
+                st.session_state.messages = []
+                st.session_state.latest_plan = None
+                st.session_state.pending_user_message = ""
+                st.rerun()
         else:
-            st.caption("No sessions yet.")
+            st.caption("No previous sessions yet.")
+
+        st.divider()
+        action_state = memory.get_action_state() or {}
+        if action_state.get("current_intent") == "build_plan":
+            slots = action_state.get("slots", {})
+            progress = len([k for k in ["issue", "goal", "tone"] if slots.get(k)]) / 3
+            st.markdown("**Plan Builder Progress**")
+            st.progress(progress)
+            st.caption(f"Current step: {len([k for k in ['issue', 'goal', 'tone'] if slots.get(k)]) + 1}/3")
+
+        profile = memory.get_user_profile()
+        if profile:
+            st.markdown("**Profile Snapshot**")
+            if profile.get("relationship_label"):
+                st.caption(f"Relationship: {profile['relationship_label']}")
+            if profile.get("focus_areas"):
+                st.caption("Focus: " + ", ".join(profile["focus_areas"][:4]))
+            if profile.get("preferred_tone"):
+                st.caption(f"Tone: {profile['preferred_tone']}")
+
+        st.divider()
+        st.markdown("**Popular Situations**")
+        for situation, phrases in SITUATION_PHRASES.items():
+            with st.expander(situation, expanded=False):
+                st.markdown(f"**{situation}**")
+                for idx, phrase in enumerate(phrases):
+                    if st.button(
+                        phrase,
+                        key=f"situation_{situation}_{idx}",
+                        use_container_width=True,
+                    ):
+                        _post_guided_situation_turn(memory, situation, phrase)
+                        st.rerun()
 
         st.divider()
         st.markdown(
-            "**What I can do:**\n"
-            "- Answer relationship questions (RAG)\n"
-            "- Build a conversation plan\n"
-            "- Guide a reflection exercise\n"
-            "- Save & retrieve your plans"
+            "**Quick Questions**\n"
+            "- Help me build a conversation plan.\n"
+            "- Save my plan.\n"
+            "- Show my saved plan.\n"
+            "- I want a reflection exercise."
         )
-        st.divider()
         st.caption(
-            "⚠️ I am not a licensed therapist. This tool is for educational "
-            "purposes and does not replace professional support."
+            "This tool is for relationship support and communication practice, "
+            "not a substitute for licensed professional care."
         )
 
 
-# ============================================================================
-# Chat message helpers
-# ============================================================================
+def _render_header() -> None:
+    st.markdown(
+        """
+        <div class="love-hero">
+            <h2>L.O.V.E. Relationship Support Studio</h2>
+            <p>Talk things through, build a clear conversation plan, and practice a healthier next step.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-def _load_messages_into_state(memory: SessionMemory) -> None:
-    """Load persisted messages into st.session_state on first run."""
-    if "messages" not in st.session_state or not st.session_state.messages:
-        history = memory.get_history(limit=100)
-        st.session_state.messages = [
-            {"role": m["role"], "content": m["content"]}
-            for m in history
+    options = [
+        ("Talk Through A Fight", "my partner and i are always arguing and i need help"),
+        ("Build A Plan", "help me build a conversation plan"),
+        ("Reflection Exercise", "i want a reflection exercise"),
+        ("Rebuild Trust", "i want to rebuild trust after betrayal"),
+    ]
+    cols = st.columns(4)
+    for col, (label, message) in zip(cols, options):
+        if col.button(label, use_container_width=True):
+            st.session_state.pending_user_message = message
+
+
+def _render_assistant_content(content: str) -> None:
+    citation_marker = "\n\n---\n📚 "
+    if citation_marker in content:
+        body, tip_card_raw = content.split(citation_marker, 1)
+        st.markdown(body)
+        with st.expander("Your Relationship Tip Card"):
+            try:
+                tip_card = json.loads(tip_card_raw.strip())
+            except Exception:
+                st.markdown(tip_card_raw)
+                return
+
+            category = str(tip_card.get("category", "Relationship")).strip() or "Relationship"
+            tips = tip_card.get("actionable_examples", [])
+            source_summary = str(tip_card.get("source_summary", "")).strip()
+
+            st.markdown(f"**Category:** **{category}**")
+            st.markdown("**Actionable examples:**")
+            if isinstance(tips, list) and tips:
+                for bullet in tips[:3]:
+                    text = str(bullet).strip()
+                    if text:
+                        st.markdown(f"- {text}")
+            else:
+                st.markdown("- Use calm, specific language to describe what happened and how it affected you.")
+
+            st.caption(
+                "Sourced therapist examples from HuggingFace: "
+                + (
+                    source_summary
+                    if source_summary
+                    else "Synthesized from the most relevant relationship examples in the CounselChat subset."
+                )
+            )
+    else:
+        st.markdown(content)
+
+
+def _build_example_summaries(results: list[dict]) -> str:
+    """Build compact summaries for the UI tailoring prompt."""
+    lines: list[str] = []
+    for i, row in enumerate(results, 1):
+        doc_id = row.get("doc_id", "unknown")
+        topic = row.get("project_topic", "relationship")
+        title = row.get("question_title", "")
+        snippet = (row.get("answer_snippet") or row.get("answer_text") or "").replace("\n", " ").strip()
+        if len(snippet) > 180:
+            snippet = snippet[:180].rstrip() + "..."
+        lines.append(
+            f"Example {i}: id={doc_id}; topic={topic}; title={title}; therapist_answer_snippet={snippet}"
+        )
+    return "\n".join(lines)
+
+
+def _generate_tip_card_actions(
+    user_input: str,
+    memory: SessionMemory,
+    results: list[dict],
+) -> list[str]:
+    """Generate 1-3 concise actionable bullets for the relationship tip card."""
+    if not results:
+        return []
+
+    history = memory.get_history_for_prompt(limit=6) or "No prior history."
+    profile_context = memory.get_profile_for_prompt()
+    example_summaries = _build_example_summaries(results)
+    prompt = RELATIONSHIP_TIP_CARD_PROMPT.format(
+        user_message=user_input,
+        history=history,
+        profile_context=profile_context,
+        example_summaries=example_summaries,
+    )
+
+    try:
+        raw = generate_text(
+            "You create concise relationship tip bullets based on therapist examples and user context.",
+            prompt,
+            temperature=0.35,
+            max_tokens=160,
+        ).strip()
+    except Exception:
+        return [
+            "Name what happened using one concrete example and your feeling.",
+            "Ask one open-ended question to understand your partner's perspective.",
+            "Agree on one small, time-bound next step to reduce repeated conflict.",
         ]
-    if "latest_plan" not in st.session_state:
-        st.session_state.latest_plan = None
+
+    cleaned: list[str] = []
+    for line in raw.splitlines():
+        t = line.strip().lstrip("-").strip()
+        if not t:
+            continue
+        t = re.sub(r"^\d+[\.\)]\s*", "", t)
+        t = t.strip()
+        if not t:
+            continue
+        if len(t.split()) > 20:
+            t = " ".join(t.split()[:20]).rstrip(",.;:") + "."
+        cleaned.append(t)
+        if len(cleaned) >= 3:
+            break
+
+    if not cleaned:
+        return [
+            "Name what happened using one concrete example and your feeling.",
+            "Ask one open-ended question to understand your partner's perspective.",
+            "Agree on one small, time-bound next step to reduce repeated conflict.",
+        ]
+
+    # De-duplicate while preserving order, and cap at 3 bullets.
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in cleaned:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+        if len(deduped) >= 3:
+            break
+    return deduped[:3]
 
 
 def _display_chat() -> None:
-    """Render the chat message history."""
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                _render_assistant_content(msg["content"])
+            else:
+                st.markdown(msg["content"])
 
 
-# ============================================================================
-# Core agent logic — process a single user message
-# ============================================================================
-
-def _process_message(user_input: str, memory: SessionMemory) -> str:
-    """
-    Run the full agent pipeline for one user message.
-    Returns the assistant response string.
-    """
-    session_id = memory.session_id
-
-    # ── 1. Safety screening ───────────────────────────────────────────────
-    safety = screen_message(user_input)
-    if not safety["safe"]:
-        # Persist the user message with the safety category
-        memory.add_user_message(user_input, intent=safety["category"])
-        response = safety["response"]
-        memory.add_assistant_message(response, intent=safety["category"])
-        return response
-
-    # ── 2. Check for in-progress multi-turn action ────────────────────────
-    action_state = memory.get_action_state()
-
-    # ── 3. Classify intent ────────────────────────────────────────────────
-    intent, rationale = classify_intent(user_input, action_state, generate_text)
-
-    # Persist user message with intent
-    memory.add_user_message(user_input, intent=intent)
-
-    # ── 4. Dispatch ───────────────────────────────────────────────────────
+def _rewrite_query_for_retrieval(user_input: str, memory: SessionMemory) -> str:
+    history = memory.get_history_for_prompt(limit=4) or "No prior history."
+    profile_context = memory.get_profile_for_prompt()
+    prompt = RAG_QUERY_REWRITE_PROMPT.format(
+        history=history,
+        profile_context=profile_context,
+        user_message=user_input,
+    )
     try:
-        if intent == "rag_qa":
-            response = _handle_rag(user_input, memory)
+        rewritten = generate_text(
+            "You rewrite relationship-support user messages into retrieval queries.",
+            prompt,
+            temperature=0.2,
+            max_tokens=80,
+        ).strip()
+    except Exception:
+        return user_input
 
-        elif intent == "build_plan":
-            result = handle_build_plan(user_input, memory, generate_text)
-            response = result["message"]
-            if result["type"] == "plan":
-                st.session_state.latest_plan = result["plan"]
+    rewritten = rewritten.splitlines()[0].strip().strip('"').strip("'")
+    if 3 <= len(rewritten) <= 240:
+        return rewritten
+    return user_input
 
-        elif intent == "reflection":
-            result = handle_reflection(user_input, memory, generate_text)
-            response = result["message"]
 
-        elif intent == "save_plan":
-            latest = st.session_state.get("latest_plan")
-            result = handle_save_plan(session_id, latest)
-            response = result["message"]
-
-        elif intent == "retrieve_plan":
-            result = handle_retrieve_plan(session_id)
-            response = result["message"]
-
-        elif intent == "unsafe":
-            response = safety["response"] or (
-                "I'm not able to help with that. If you're in crisis, "
-                "please reach out to a professional."
-            )
-
-        elif intent == "out_of_scope":
-            response = (
-                "That's outside what I can help with. I'm a relationship "
-                "support agent — I can help with communication, conflict "
-                "resolution, and reflection exercises. What's on your mind?"
-            )
-
-        else:
-            response = (
-                "I'm not sure how to help with that. Could you tell me more "
-                "about your relationship situation?"
-            )
-
-    except Exception as e:
-        response = (
-            "I ran into an issue processing your request. "
-            "Could you try rephrasing? If the problem persists, "
-            "try starting a new session."
-        )
-
-    # ── 5. Persist assistant response ─────────────────────────────────────
-    memory.add_assistant_message(response, intent=intent)
-    return response
+def _is_weak_retrieval(results: list[dict]) -> bool:
+    if not results:
+        return True
+    top = results[0]
+    hybrid = float(top.get("hybrid_score", 0.0))
+    distance = float(top.get("distance", 1.0))
+    return hybrid < HYBRID_THRESHOLD and distance > DISTANCE_THRESHOLD
 
 
 def _handle_rag(user_input: str, memory: SessionMemory) -> str:
-    """Retrieve from knowledge base, synthesize grounded answer."""
+    retrieval_query = _rewrite_query_for_retrieval(user_input, memory)
+
     try:
         retriever = get_retriever()
-        results = retriever.retrieve(user_input, k=3)
+        results = retriever.retrieve(retrieval_query, k=4)
     except Exception:
         return (
             "I'm having trouble accessing the knowledge base right now. "
             "Could you try again in a moment?"
         )
 
-    # Check retrieval quality
-    if not results or results[0]["distance"] > DISTANCE_THRESHOLD:
+    if _is_weak_retrieval(results):
+        weak_results = results[:1]
+        if weak_results:
+            tip_actions = _generate_tip_card_actions(user_input, memory, weak_results)
+            tip_card = format_citations(
+                weak_results,
+                actionable_examples=tip_actions,
+                max_examples=1,
+            )
+            return f"{RAG_WEAK_MATCH_RESPONSE}\n\n---\n📚 {json.dumps(tip_card, ensure_ascii=False)}"
         return RAG_WEAK_MATCH_RESPONSE
 
-    context = format_for_llm(results)
-    citations = format_citations(results)
-    history = memory.get_history_for_prompt(limit=6)
+    top_results = results[:2]
+    tip_actions = _generate_tip_card_actions(user_input, memory, top_results)
+    context = format_for_llm(top_results)
+    tip_card = format_citations(
+        top_results,
+        actionable_examples=tip_actions,
+        max_examples=2,
+    )
+    history = memory.get_history_for_prompt(limit=8) or "No prior history."
+    profile_context = memory.get_profile_for_prompt()
 
     prompt = RAG_SYNTHESIS_PROMPT.format(
         context=context,
         history=history,
+        profile_context=profile_context,
         user_message=user_input,
     )
 
@@ -285,69 +541,111 @@ def _handle_rag(user_input: str, memory: SessionMemory) -> str:
         answer = generate_text(SYSTEM_PROMPT, prompt)
     except Exception:
         return (
-            "I found some relevant examples but had trouble generating a "
-            "response. Here are the sources I found:\n\n" + citations
+            "I found relevant therapist examples but had trouble generating the final "
+            "response. Here are the sources I found:\n\n"
+            + json.dumps(tip_card, ensure_ascii=False)
         )
 
-    # Append citations
-    response = f"{answer.strip()}\n\n---\n📚 {citations}"
+    return f"{answer.strip()}\n\n---\n📚 {json.dumps(tip_card, ensure_ascii=False)}"
+
+
+def _process_message(user_input: str, memory: SessionMemory) -> str:
+    session_id = memory.session_id
+
+    safety = screen_message(user_input)
+    if not safety["safe"]:
+        memory.add_user_message(user_input, intent=safety["category"])
+        response = safety["response"]
+        memory.add_assistant_message(response, intent=safety["category"])
+        return response
+
+    memory.infer_and_update_profile(user_input)
+    action_state = memory.get_action_state()
+    intent, _ = classify_intent(user_input, action_state, generate_text)
+    memory.add_user_message(user_input, intent=intent)
+
+    try:
+        if intent == "rag_qa":
+            response = _handle_rag(user_input, memory)
+        elif intent == "build_plan":
+            result = handle_build_plan(user_input, memory, generate_text)
+            response = result["message"]
+            if result["type"] == "plan":
+                st.session_state.latest_plan = result["plan"]
+        elif intent == "reflection":
+            result = handle_reflection(user_input, memory, generate_text)
+            response = result["message"]
+        elif intent == "save_plan":
+            result = handle_save_plan(session_id, st.session_state.get("latest_plan"))
+            response = result["message"]
+        elif intent == "retrieve_plan":
+            result = handle_retrieve_plan(session_id)
+            response = result["message"]
+        elif intent == "out_of_scope":
+            response = (
+                "That’s outside what I can help with directly. I can still support you "
+                "with relationship communication, conflict navigation, and reflection."
+            )
+        else:
+            response = (
+                "I want to make sure I support you well. Could you share a bit more "
+                "about the relationship situation you’re navigating?"
+            )
+    except Exception:
+        response = (
+            "I ran into an issue while processing that message. "
+            "Could you try rephrasing it?"
+        )
+
+    memory.add_assistant_message(response, intent=intent)
     return response
 
 
-# ============================================================================
-# Main app
-# ============================================================================
+def _submit_user_message(user_input: str, memory: SessionMemory) -> None:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            response = _process_message(user_input, memory)
+        _render_assistant_content(response)
+
+    st.session_state.messages.append({"role": "assistant", "content": response})
+
 
 def main() -> None:
-    _render_sidebar()
+    _init_once()
+    _inject_styles()
 
     session_id = _ensure_session()
     memory = SessionMemory(session_id)
-
-    # Load persisted history into session_state
     _load_messages_into_state(memory)
 
-    # Header
-    st.title("L.O.V.E. 💬")
-    st.caption(
-        "Listen · Open Dialogue · Validate Feelings · Encourage Solutions  —  "
-        "Your relationship support companion"
-    )
+    _render_sidebar(memory)
+    _render_header()
 
-    # Show welcome message if conversation is empty
     if not st.session_state.messages:
         welcome = (
-            "Hey there, welcome! I'm **L.O.V.E.** — think of me as a supportive "
-            "friend who's here to help you work through relationship stuff.\n\n"
-            "You can just talk to me like you'd talk to a friend. Tell me what's "
-            "going on and I'll listen first, then we can figure things out together.\n\n"
-            "Here's what I'm good at:\n"
-            "- 💬 **Talking through relationship questions** — I draw on real therapist insights\n"
-            "- 📝 **Building a conversation plan** — for when you need to have a tough talk\n"
-            "- 🪞 **Guided reflection** — to help you sort out how you're feeling\n"
-            "- 💾 **Saving your plans** — so you can come back to them later\n\n"
-            "So — what's on your mind?"
+            "Welcome, I’m **L.O.V.E.**.\n\n"
+            "I’ll listen first, ask thoughtful follow-ups, validate what you’re feeling, "
+            "and help you craft practical next steps.\n\n"
+            "You can start by sharing what happened, or tap one of the guided actions above."
         )
         st.session_state.messages.append({"role": "assistant", "content": welcome})
         memory.add_assistant_message(welcome, intent="system")
 
-    # Display chat
     _display_chat()
 
-    # Chat input
-    if user_input := st.chat_input("Type your message here..."):
-        # Show user message immediately
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
+    pending = st.session_state.get("pending_user_message", "").strip()
+    if pending:
+        st.session_state.pending_user_message = ""
+        _submit_user_message(pending, memory)
+        st.rerun()
 
-        # Process and show assistant response
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                response = _process_message(user_input, memory)
-            st.markdown(response)
-
-        st.session_state.messages.append({"role": "assistant", "content": response})
+    typed = st.chat_input("Share what happened, or ask for a plan/reflection exercise...")
+    if typed:
+        _submit_user_message(typed, memory)
 
 
 if __name__ == "__main__":

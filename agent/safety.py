@@ -183,13 +183,13 @@ def screen_message(user_input: str) -> dict[str, Any]:
         return {"safe": False, "category": "out_of_scope",
                 "response": "It looks like your message was empty. How can I help you today?"}
 
-    # Order matters: check most serious categories first.
+    # Order matters: crisis/abuse must take precedence over all other checks.
     checks: list[tuple[str, list[str]]] = [
-        ("injection", _INJECTION_PATTERNS),
         ("crisis",    _CRISIS_PATTERNS),
         ("abuse",     _ABUSE_PATTERNS),
         ("medical",   _MEDICAL_PATTERNS),
         ("legal",     _LEGAL_PATTERNS),
+        ("injection", _INJECTION_PATTERNS),
         ("out_of_scope", _OUT_OF_SCOPE_PATTERNS),
     ]
 
