@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+data/chroma_db/
+data/love_agent.db
+.env
