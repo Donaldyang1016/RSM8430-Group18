@@ -45,13 +45,21 @@ You should see `✅ All 225 documents indexed successfully.`
 
 ### 4. Configure the LLM endpoint
 
-Set these environment variables to point to your LLM:
+Copy the example env file and fill in your values:
 
 ```bash
-export LLM_API_BASE="https://rsm-8430-finalproject.bjlkeng.io"   # course-provided endpoint URL
-export LLM_API_KEY="your-api-key"                      # student number
-export LLM_MODEL="qwen3-30b-a3b-fp8"                  # model name
+cp .env.example .env
 ```
+
+Then edit `.env`:
+
+```
+LLM_API_BASE=https://rsm-8430-finalproject.bjlkeng.io
+LLM_API_KEY=your-student-number
+LLM_MODEL=qwen3-30b-a3b-fp8
+```
+
+The app loads `.env` automatically on startup — no need to `export` anything.
 
 ### 5. Run the app
 

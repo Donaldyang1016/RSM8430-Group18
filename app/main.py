@@ -21,6 +21,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
+# Load .env before any project imports that read os.environ
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 import streamlit as st
 
 # ---------------------------------------------------------------------------
