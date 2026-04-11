@@ -151,20 +151,24 @@ Examples:
 # ============================================================================
 
 RELATIONSHIP_TIP_CARD_PROMPT = """\
-Create content for a compact relationship tip card based on retrieved therapist examples.
+You are a supportive relationship coach. Using the therapist examples below as inspiration, \
+write exactly 2-3 practical suggestions that THIS specific user can act on.
 
-Requirements:
-- Output 1 to 3 lines, each one is an actionable suggestion.
-- Each line must be a phrase or one short sentence (max 18 words).
-- Suggestions must be tailored to the user's situation.
-- Synthesize ideas from the examples, but do NOT copy therapist text verbatim.
-- Avoid generic filler.
+STRICT RULES — follow every one:
+- Write ONLY the suggestions. Do NOT describe or summarize the therapist examples.
+- Address the user directly. Use "you", "your partner", "try...", "consider...".
+- Every suggestion must be a COMPLETE sentence — never end mid-thought.
+- Each suggestion: 10-25 words, practical, specific to the user's situation.
+- Do NOT start any line with "The user...", "The example...", "Based on...", \
+"The tip...", "Okay,", "So,", or any preamble.
+- No numbering, no bullet characters, no headers.
 
-Output format:
-- Return only non-empty actionable lines (up to 3).
-- No numbering, no bullets, no headers.
+Example of correct output (adapt to the actual situation, do not copy these):
+Tell your partner one specific moment this week when you felt disconnected, using "I" language.
+Ask "What would make you feel heard right now?" before jumping to solutions.
+Set aside 15 minutes tonight for an uninterrupted check-in with no phones present.
 
-User message:
+User's situation:
 {user_message}
 
 Recent conversation:
@@ -173,8 +177,10 @@ Recent conversation:
 Profile context:
 {profile_context}
 
-Retrieved examples:
+Therapist examples — use for inspiration only, do NOT describe them:
 {example_summaries}
+
+Write 2-3 complete, actionable suggestions for this user:
 """
 
 

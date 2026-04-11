@@ -46,6 +46,7 @@ from state.store import get_or_create_session, init_db, list_sessions
 
 DISTANCE_THRESHOLD = 0.55
 HYBRID_THRESHOLD = 0.18
+TIP_CARD_MARKER = "\n\n---\n📚 "
 
 SITUATION_PHRASES: dict[str, list[str]] = {
     "Trust": [
@@ -330,42 +331,78 @@ def _render_header() -> None:
             st.session_state.pending_user_message = message
 
 
+def _is_tip_card_payload(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    required = {"category", "actionable_examples", "source_summary"}
+    return required.issubset(set(payload.keys()))
+
+
+def _render_tip_card(payload: dict[str, object]) -> None:
+    with st.expander("Your Relationship Tip Card"):
+        category = str(payload.get("category", "Relationship")).strip() or "Relationship"
+        tips = payload.get("actionable_examples", [])
+        source_summary = str(payload.get("source_summary", "")).strip()
+
+        st.markdown(f"**Category:** **{category}**")
+        st.markdown("**Actionable examples:**")
+        if isinstance(tips, list) and tips:
+            for bullet in tips[:3]:
+                text = str(bullet).strip()
+                if text:
+                    st.markdown(f"- {text}")
+        else:
+            st.markdown("- Use calm, specific language to describe what happened and how it affected you.")
+
+        dataset_url = "https://huggingface.co/datasets/nbertagnolli/counsel-chat"
+        themes = source_summary if source_summary else "relationship communication, conflict navigation"
+        st.markdown(
+            f"<small>Sourced therapist examples from "
+            f"<a href='{dataset_url}' target='_blank'>CounselChat</a>: {themes}</small>",
+            unsafe_allow_html=True,
+        )
+
+
+def _extract_legacy_tip_card(content: str) -> tuple[str, dict[str, object] | None]:
+    """
+    Backward-compatible parser for older fallback messages that ended with raw tip-card JSON.
+    """
+    match = re.match(r"^(?P<body>[\s\S]*?)\n\n(?P<json>\{[\s\S]+\})\s*$", content.strip())
+    if not match:
+        return content, None
+    raw = match.group("json").strip()
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return content, None
+    if _is_tip_card_payload(parsed):
+        return match.group("body").strip(), parsed
+    return content, None
+
+
 def _render_assistant_content(content: str) -> None:
-    citation_marker = "\n\n---\n📚 "
-    if citation_marker in content:
-        body, tip_card_raw = content.split(citation_marker, 1)
+    if TIP_CARD_MARKER in content:
+        body, tip_card_raw = content.split(TIP_CARD_MARKER, 1)
         st.markdown(body)
-        with st.expander("Your Relationship Tip Card"):
-            try:
-                tip_card = json.loads(tip_card_raw.strip())
-            except Exception:
-                st.markdown(tip_card_raw)
-                return
+        try:
+            tip_card = json.loads(tip_card_raw.strip())
+        except Exception:
+            st.markdown(tip_card_raw)
+            return
 
-            category = str(tip_card.get("category", "Relationship")).strip() or "Relationship"
-            tips = tip_card.get("actionable_examples", [])
-            source_summary = str(tip_card.get("source_summary", "")).strip()
+        if _is_tip_card_payload(tip_card):
+            _render_tip_card(tip_card)
+        else:
+            st.markdown(tip_card_raw)
+        return
 
-            st.markdown(f"**Category:** **{category}**")
-            st.markdown("**Actionable examples:**")
-            if isinstance(tips, list) and tips:
-                for bullet in tips[:3]:
-                    text = str(bullet).strip()
-                    if text:
-                        st.markdown(f"- {text}")
-            else:
-                st.markdown("- Use calm, specific language to describe what happened and how it affected you.")
+    legacy_body, legacy_tip_card = _extract_legacy_tip_card(content)
+    if legacy_tip_card:
+        st.markdown(legacy_body)
+        _render_tip_card(legacy_tip_card)
+        return
 
-            st.caption(
-                "Sourced therapist examples from HuggingFace: "
-                + (
-                    source_summary
-                    if source_summary
-                    else "Synthesized from the most relevant relationship examples in the CounselChat subset."
-                )
-            )
-    else:
-        st.markdown(content)
+    st.markdown(content)
 
 
 def _build_example_summaries(results: list[dict]) -> str:
@@ -405,10 +442,13 @@ def _generate_tip_card_actions(
 
     try:
         raw = generate_text(
-            "You create concise relationship tip bullets based on therapist examples and user context.",
+            (
+                "You are a relationship coach. Output only complete, actionable suggestions "
+                "in second person. Never describe the examples or summarize the situation."
+            ),
             prompt,
             temperature=0.35,
-            max_tokens=160,
+            max_tokens=512,
         ).strip()
     except Exception:
         return [
@@ -419,15 +459,20 @@ def _generate_tip_card_actions(
 
     cleaned: list[str] = []
     for line in raw.splitlines():
-        t = line.strip().lstrip("-").strip()
+        t = line.strip().lstrip("-•*").strip()
         if not t:
             continue
         t = re.sub(r"^\d+[\.\)]\s*", "", t)
         t = t.strip()
         if not t:
             continue
-        if len(t.split()) > 20:
-            t = " ".join(t.split()[:20]).rstrip(",.;:") + "."
+        # Skip lines that are meta-commentary rather than advice
+        lower_t = t.lower()
+        if any(lower_t.startswith(prefix) for prefix in (
+            "the user", "the example", "based on", "okay,", "so,",
+            "the tip", "this example", "here are", "here is",
+        )):
+            continue
         cleaned.append(t)
         if len(cleaned) >= 3:
             break
@@ -451,6 +496,20 @@ def _generate_tip_card_actions(
         if len(deduped) >= 3:
             break
     return deduped[:3]
+
+
+def _llm_issue_hint(exc: Exception) -> str | None:
+    """
+    Convert low-level LLM/API errors into user-safe, actionable guidance.
+    """
+    message = str(exc).lower()
+    if any(token in message for token in ("401", "403", "api key", "unauthorized", "forbidden")):
+        return "Please check `LLM_API_KEY` for your current terminal session."
+    if any(token in message for token in ("model", "not found", "does not exist")):
+        return "Please verify `LLM_MODEL` matches an available model on your endpoint (e.g., `qwen3-30b-a3b-fp8`)."
+    if any(token in message for token in ("connection", "failed to establish", "name or service not known", "timed out")):
+        return "Please verify `LLM_API_BASE` and that your model endpoint is reachable."
+    return None
 
 
 def _display_chat() -> None:
@@ -538,15 +597,20 @@ def _handle_rag(user_input: str, memory: SessionMemory) -> str:
     )
 
     try:
-        answer = generate_text(SYSTEM_PROMPT, prompt)
-    except Exception:
+        answer = generate_text(SYSTEM_PROMPT, prompt).strip()
+        if not answer:
+            raise RuntimeError("Empty synthesis response.")
+    except Exception as exc:
+        hint = _llm_issue_hint(exc)
+        guidance = f"\n\n{hint}" if hint else ""
         return (
-            "I found relevant therapist examples but had trouble generating the final "
-            "response. Here are the sources I found:\n\n"
-            + json.dumps(tip_card, ensure_ascii=False)
+            "I’m having trouble generating the full response right now, but I still found "
+            "relevant therapist examples and practical next steps for you."
+            + guidance
+            + f"{TIP_CARD_MARKER}{json.dumps(tip_card, ensure_ascii=False)}"
         )
 
-    return f"{answer.strip()}\n\n---\n📚 {json.dumps(tip_card, ensure_ascii=False)}"
+    return f"{answer}{TIP_CARD_MARKER}{json.dumps(tip_card, ensure_ascii=False)}"
 
 
 def _process_message(user_input: str, memory: SessionMemory) -> str:
@@ -591,11 +655,18 @@ def _process_message(user_input: str, memory: SessionMemory) -> str:
                 "I want to make sure I support you well. Could you share a bit more "
                 "about the relationship situation you’re navigating?"
             )
-    except Exception:
-        response = (
-            "I ran into an issue while processing that message. "
-            "Could you try rephrasing it?"
-        )
+    except Exception as exc:
+        hint = _llm_issue_hint(exc)
+        if hint:
+            response = (
+                "I ran into an issue while processing that message.\n\n"
+                f"{hint}"
+            )
+        else:
+            response = (
+                "I ran into an issue while processing that message. "
+                "Could you try rephrasing it?"
+            )
 
     memory.add_assistant_message(response, intent=intent)
     return response

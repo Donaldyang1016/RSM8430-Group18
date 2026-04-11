@@ -45,6 +45,14 @@ CREATE TABLE IF NOT EXISTS saved_plans (
     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
 
+-- User profile memory: one row per session, stores inferred profile as JSON.
+CREATE TABLE IF NOT EXISTS user_profiles (
+    session_id    TEXT PRIMARY KEY,
+    profile_json  TEXT NOT NULL DEFAULT '{}',
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+);
+
 -- Index for fast message retrieval by session.
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
 

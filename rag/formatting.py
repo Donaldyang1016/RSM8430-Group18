@@ -129,14 +129,8 @@ def format_citations(
     if not summary:
         top_titles = [str(r.get("question_title", "")).strip() for r in limited]
         top_titles = [t for t in top_titles if t]
-        if top_titles:
-            joined = "; ".join(top_titles[:2])
-            summary = (
-                "Synthesized from therapist-authored relationship examples on HuggingFace, "
-                f"including themes like: {joined}."
-            )
-        else:
-            summary = "Synthesized from therapist-authored relationship examples on HuggingFace."
+        # Produce just the theme titles so the UI layer can format them freely.
+        summary = ", ".join(top_titles[:2]) if top_titles else ""
 
     return {
         "category": category_label,
