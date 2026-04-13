@@ -34,6 +34,7 @@ from agent.router import classify_intent
 from agent.safety import screen_message
 from app.llm_client import generate_text
 from app.prompts import (
+    CONVERSATION_READINESS_PROMPT,
     RAG_QUERY_REWRITE_PROMPT,
     RELATIONSHIP_TIP_CARD_PROMPT,
     RAG_SYNTHESIS_PROMPT,
@@ -314,6 +315,8 @@ def _load_messages_into_state(memory: SessionMemory) -> None:
         ]
     if "latest_plan" not in st.session_state:
         st.session_state.latest_plan = None
+    if "plan_offered" not in st.session_state:
+        st.session_state.plan_offered = False
     if "pending_user_message" not in st.session_state:
         st.session_state.pending_user_message = ""
 
@@ -344,6 +347,7 @@ def _render_sidebar(memory: SessionMemory) -> None:
             st.session_state.session_id = get_or_create_session()
             st.session_state.messages = []
             st.session_state.latest_plan = None
+            st.session_state.plan_offered = False
             st.session_state.pending_user_message = ""
             st.rerun()
 
@@ -361,6 +365,7 @@ def _render_sidebar(memory: SessionMemory) -> None:
                 st.session_state.session_id = selected
                 st.session_state.messages = []
                 st.session_state.latest_plan = None
+                st.session_state.plan_offered = False
                 st.session_state.pending_user_message = ""
                 st.rerun()
         else:
@@ -718,6 +723,55 @@ def _handle_rag(user_input: str, memory: SessionMemory) -> str:
     return f"{answer}{TIP_CARD_MARKER}{json.dumps(tip_card, ensure_ascii=False)}"
 
 
+# ---------------------------------------------------------------------------
+# Conversation readiness detection
+# ---------------------------------------------------------------------------
+
+_READINESS_MIN_USER_MESSAGES = 3
+
+
+def _check_conversation_readiness(user_input: str, memory: SessionMemory) -> bool:
+    """Return True if the user seems ready to be offered a conversation plan."""
+    history = memory.get_history(limit=50)
+    user_msg_count = sum(1 for m in history if m["role"] == "user")
+    if user_msg_count < _READINESS_MIN_USER_MESSAGES:
+        return False
+
+    history_text = memory.get_history_for_prompt(limit=10)
+    prompt = CONVERSATION_READINESS_PROMPT.format(
+        history=history_text,
+        user_message=user_input,
+    )
+    try:
+        result = generate_text(
+            "You are an evaluator. Respond with ONLY one word.",
+            prompt,
+            temperature=0.1,
+            max_tokens=16,
+        ).strip().lower()
+        return "ready" in result and "not_ready" not in result
+    except Exception:
+        return False
+
+
+def _is_affirmative(text: str) -> bool:
+    """Return True if the message is a short affirmative response."""
+    lower = text.lower().strip().rstrip("!.")
+    affirmatives = {
+        "yes", "yeah", "yep", "yea", "sure", "ok", "okay", "absolutely",
+        "definitely", "please", "let's do it", "let's go", "sounds good",
+        "i'd like that", "that would be great", "yes please", "go ahead",
+        "i'm ready", "let's try", "sounds great", "i think so",
+        "that sounds helpful", "why not", "for sure",
+    }
+    if lower in affirmatives:
+        return True
+    # Also match short messages that contain affirmative words
+    if len(lower.split()) <= 5 and any(w in lower for w in ("yes", "yeah", "sure", "ok", "okay", "please", "let's", "ready")):
+        return True
+    return False
+
+
 def _process_message(user_input: str, memory: SessionMemory) -> str:
     session_id = memory.session_id
 
@@ -731,11 +785,24 @@ def _process_message(user_input: str, memory: SessionMemory) -> str:
     memory.infer_and_update_profile(user_input)
     action_state = memory.get_action_state()
     intent, _ = classify_intent(user_input, action_state, generate_text)
+
+    # If we previously offered a plan and the user seems to accept, route to build_plan
+    if (
+        intent == "rag_qa"
+        and st.session_state.get("plan_offered")
+        and _is_affirmative(user_input)
+    ):
+        intent = "build_plan"
+        st.session_state.plan_offered = False
+
     memory.add_user_message(user_input, intent=intent)
 
     try:
         if intent == "rag_qa":
             response = _handle_rag(user_input, memory)
+            # Check if user is ready for a plan suggestion
+            if _check_conversation_readiness(user_input, memory):
+                st.session_state.plan_offered = True
         elif intent == "build_plan":
             result = handle_build_plan(user_input, memory, generate_text)
             response = result["message"]

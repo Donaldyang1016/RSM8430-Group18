@@ -19,13 +19,18 @@ adding extra ranking diagnostics:
 from __future__ import annotations
 
 import math
+import os
 import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import chromadb
-from chromadb.utils import embedding_functions
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# Load .env from project root
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # ================================================================================
 # Config — must match build_index.py
@@ -33,8 +38,43 @@ from chromadb.utils import embedding_functions
 
 CHROMA_DIR = Path("data/chroma_db")
 COLLECTION = "counselchat"
-EMBED_MODEL = "all-MiniLM-L6-v2"
 DEFAULT_K = 3
+
+# Embedding endpoint (course-provided)
+EMBED_API_BASE = os.environ.get("EMBED_API_BASE", "https://rsm-8430-a2.bjlkeng.io")
+EMBED_API_KEY  = os.environ.get("EMBED_API_KEY", os.environ.get("LLM_API_KEY", ""))
+EMBED_MODEL    = os.environ.get("EMBED_MODEL", "text-embedding-3-small")
+
+EMBED_BATCH = 100
+
+
+class APIEmbeddingFunction:
+    """ChromaDB-compatible embedding function that calls an OpenAI-compatible endpoint."""
+
+    def __init__(self, api_base: str, api_key: str, model: str):
+        self._client = OpenAI(base_url=f"{api_base.rstrip('/')}/v1", api_key=api_key)
+        self._model = model
+
+    def name(self) -> str:
+        return "api_embedding"
+
+    def _embed(self, texts: list[str]) -> list[list[float]]:
+        all_embeddings: list[list[float]] = []
+        for i in range(0, len(texts), EMBED_BATCH):
+            batch = texts[i : i + EMBED_BATCH]
+            response = self._client.embeddings.create(input=batch, model=self._model)
+            batch_embeddings = [item.embedding for item in response.data]
+            all_embeddings.extend(batch_embeddings)
+        return all_embeddings
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        return self._embed(input)
+
+    def embed_documents(self, input: list[str]) -> list[list[float]]:
+        return self._embed(input)
+
+    def embed_query(self, input: list[str]) -> list[list[float]]:
+        return self._embed(input)
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9']+")
 
@@ -67,11 +107,15 @@ class CounselChatRetriever:
         self,
         chroma_dir: str | Path = CHROMA_DIR,
         collection_name: str = COLLECTION,
+        embed_api_base: str = EMBED_API_BASE,
+        embed_api_key: str = EMBED_API_KEY,
         embed_model: str = EMBED_MODEL,
     ):
         self._client = chromadb.PersistentClient(path=str(chroma_dir))
-        self._ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=embed_model
+        self._ef = APIEmbeddingFunction(
+            api_base=embed_api_base,
+            api_key=embed_api_key,
+            model=embed_model,
         )
         self._collection = self._client.get_collection(
             name=collection_name,

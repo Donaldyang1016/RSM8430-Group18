@@ -44,7 +44,9 @@ A deployed version of the app is available at:
 │  │ 1. Safety     │──▶│ 2. Intent    │──▶│ 3. Action Dispatcher     │    │
 │  │    Screening  │   │    Router    │   │    (RAG / Plan / Reflect │    │
 │  │ (regex-based  │   │ (keyword +   │   │     / Save / Retrieve)  │    │
-│  │  guardrails)  │   │  LLM hybrid) │   │                          │    │
+│  │  guardrails)  │   │  LLM hybrid  │   │                          │    │
+│  │               │   │  + readiness │   │                          │    │
+│  │               │   │  detection)  │   │                          │    │
 │  └──────────────┘   └──────────────┘   └───────────┬──────────────┘    │
 │                                                     │                   │
 │  ┌──────────────────────────────────────────────────┼──────────────┐    │
@@ -70,30 +72,31 @@ A deployed version of the app is available at:
 │  ┌─────────┬──────────┐  │
 │  │ Vector  │ Lexical  │  │        ┌──────────────────────────────────┐
 │  │ (Chroma │ (BM25    │  │        │       LLM Endpoint                │
-│  │  embed) │  score)  │  │        │                                    │
-│  └────┬────┴────┬─────┘  │        │  OpenAI-compatible API            │
-│       │  Score Fusion    │        │  (Qwen 3 30B-A3B FP8)            │
-│       │  (70/30 rerank)  │        │  • Retries + timeout handling     │
-│       ▼                  │        │  • Thinking-tag stripping         │
-│  Top-K Results           │        │                                    │
-│      │                   │        └──────────────────────────────────┘
-│      ▼                   │
-│  RAG Synthesis (LLM)     │
+│  │  + API  │  score)  │  │        │                                    │
+│  │  embed) │          │  │        │  OpenAI-compatible API            │
+│  └────┬────┴────┬─────┘  │        │  (Qwen 3 30B-A3B FP8)            │
+│       │  Score Fusion    │        │  • Retries + timeout handling     │
+│       │  (70/30 rerank)  │        │  • Thinking-tag stripping         │
+│       ▼                  │        │                                    │
+│  Top-K Results           │        └──────────────────────────────────┘
 │      │                   │
-│      ▼                   │
-│  Response + Tip Card     │
-│                          │
-└──────────────────────────┘
+│      ▼                   │        ┌──────────────────────────────────┐
+│  RAG Synthesis (LLM)     │        │    Embedding Endpoint             │
+│      │                   │        │                                    │
+│      ▼                   │        │  rsm-8430-a2.bjlkeng.io           │
+│  Response + Tip Card     │        │  (bge-base-en-v1.5, 768-dim)     │
+│                          │        │                                    │
+└──────────────────────────┘        └──────────────────────────────────┘
 ```
 
 ### How a Message Flows Through the System
 
 1. **Safety screening** — Every incoming message is checked against regex patterns for crisis language, abuse, medical/legal requests, and prompt injection. Flagged messages receive an immediate safe response without hitting the LLM.
 2. **Profile inference** — The memory module scans for relationship signals (partner mentions, emotional keywords, tone preferences) and persists them to SQLite for cross-turn personalization.
-3. **Intent routing** — A two-stage classifier first tries high-confidence keyword rules, then falls back to the LLM for ambiguous cases. Possible intents: `rag_qa`, `build_plan`, `reflection`, `save_plan`, `retrieve_plan`, `out_of_scope`.
+3. **Intent routing** — A two-stage classifier first tries high-confidence keyword rules, then falls back to the LLM for ambiguous cases. Possible intents: `rag_qa`, `build_plan`, `reflection`, `save_plan`, `retrieve_plan`, `out_of_scope`. Additionally, a **conversation readiness detector** checks whether the user has explored their situation deeply enough to benefit from a plan; if so, the agent naturally suggests one. If the user responds affirmatively, the intent is automatically rerouted to `build_plan` without requiring explicit plan-request phrasing.
 4. **Action dispatch** — Based on intent:
-   - **RAG Q&A**: rewrites the query → runs hybrid retrieval → synthesizes a grounded response with a Relationship Tip Card
-   - **Build Plan**: runs a multi-turn slot-filling flow (issue → goal → tone) or generates a plan directly when context is rich
+   - **RAG Q&A**: rewrites the query → runs hybrid retrieval → synthesizes a grounded, conversational response with a Relationship Tip Card
+   - **Build Plan**: runs a multi-turn slot-filling flow (issue → goal → tone) or generates a plan directly when context is rich (3+ prior exchanges)
    - **Reflection**: generates guided prompts for self-examination
    - **Save/Retrieve Plan**: persists or loads the latest plan from SQLite
 5. **Response rendering** — The response is displayed in the chat, with Tip Cards shown as expandable UI widgets.
@@ -120,15 +123,7 @@ cd RSM8430-Group18
 pip install -r requirements.txt
 ```
 
-### 3. Build the vector index (one-time)
-
-```bash
-python rag/build_index.py
-```
-
-Expected output: `All 225 documents indexed successfully.`
-
-### 4. Configure environment variables
+### 3. Configure environment variables
 
 Copy the example env file and fill in your credentials:
 
@@ -136,15 +131,29 @@ Copy the example env file and fill in your credentials:
 cp .env.example .env
 ```
 
-Then open `.env` and set your **student number** as the API key:
+Then open `.env` and set your **student number** as the API key for both the LLM and embedding endpoints:
 
 ```dotenv
 LLM_API_BASE=https://rsm-8430-finalproject.bjlkeng.io
 LLM_API_KEY=<your-student-number>
 LLM_MODEL=qwen3-30b-a3b-fp8
+
+EMBED_API_BASE=https://rsm-8430-a2.bjlkeng.io
+EMBED_API_KEY=<your-student-number>
+EMBED_MODEL=text-embedding-3-small
 ```
 
 > The app reads `.env` automatically at startup via `python-dotenv`. You do **not** need to export these variables manually.
+
+### 4. Build the vector index (one-time)
+
+```bash
+python rag/build_index.py
+```
+
+Expected output: `All 225 documents indexed successfully.`
+
+> This calls the embedding endpoint to embed all 225 documents. Requires a valid `EMBED_API_KEY` in `.env`.
 
 ### 5. Start the app
 
@@ -268,7 +277,7 @@ Query rewrite → hybrid retrieval → grounded synthesis. Each response include
 
 ### 2. Build Conversation Plan
 
-Multi-turn slot-filling (`issue → goal → tone`) with a progress bar in the sidebar. When the conversation already has enough context, the system skips slots and generates a plan directly. Plan output includes: Opening Statement, Talking Points, Validating Phrase, Boundary Phrase, and Suggested Follow-up.
+Multi-turn slot-filling (`issue → goal → tone`) with a progress bar in the sidebar. When the conversation already has enough context (3+ user messages), the system skips slots and generates a plan directly from the conversation history. The agent also **proactively offers to build a plan** when it detects the user is ready — no need for the user to explicitly ask. If the user responds affirmatively ("yes", "sure", "sounds good", etc.), the system automatically routes to plan generation. Plan output includes: Opening Statement, Talking Points, Validating Phrase, Boundary Phrase, and Suggested Follow-up.
 
 ### 3. Reflection Exercise
 
@@ -294,7 +303,7 @@ The **Popular Situations** sidebar offers 6 scenario families (Trust, Conflict, 
 |-----------|-----------|
 | Frontend | Streamlit 1.28+ |
 | LLM | Qwen 3 30B-A3B (FP8) via OpenAI-compatible API |
-| Embeddings | `all-MiniLM-L6-v2` (sentence-transformers) |
+| Embeddings | `bge-base-en-v1.5` via course endpoint (`rsm-8430-a2.bjlkeng.io`) |
 | Vector Store | ChromaDB |
 | Retrieval | Hybrid (vector cosine + BM25 lexical), 70/30 score fusion |
 | Persistence | SQLite (sessions, messages, plans, profiles) |
@@ -302,16 +311,16 @@ The **Popular Situations** sidebar offers 6 scenario families (Trust, Conflict, 
 
 ---
 
-## L.O.V.E. Response Framework
+## L.O.V.E. Response Philosophy
 
-All generated responses are prompted to follow this four-step structure:
+The agent's responses are guided by the L.O.V.E. framework — **Listen, Open Dialogue, Validate Feelings, Encourage Solutions** — but delivered in a natural, conversational tone rather than a rigid checklist. The system prompt instructs the LLM to:
 
-1. **Listen** — Acknowledge what the user shared ("It sounds like…")
-2. **Open Dialogue** — Ask a clarifying or deepening question
-3. **Validate Feelings** — Normalize the user's emotional experience
-4. **Encourage Solutions** — Suggest one concrete, doable next step
+- **Listen** — Reflect back what the user shared with genuine empathy, using varied phrasing (not always "It sounds like…")
+- **Open Dialogue** — Ask one thoughtful follow-up that deepens understanding, without repeating the same question type across turns
+- **Validate Feelings** — Normalize the user's emotional experience naturally within the flow of the response
+- **Encourage Solutions** — Offer concrete next steps when appropriate, and **automatically suggest building a conversation plan** when the user has explored their situation deeply enough (detected via a conversation readiness check after 3+ exchanges)
 
-This is enforced in `app/prompts.py` via the system prompt and synthesis templates.
+The goal is to feel like talking to a supportive, attentive friend — not a robot running through steps. Prompt templates are defined in `app/prompts.py`.
 
 ---
 
