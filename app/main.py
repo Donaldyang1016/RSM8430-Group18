@@ -132,6 +132,7 @@ def _inject_styles() -> None:
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
 
+            /* ---- Light mode (default) ---- */
             :root {
                 --love-bg: #f7f1e8;
                 --love-card: #fffaf3;
@@ -140,13 +141,64 @@ def _inject_styles() -> None:
                 --love-accent: #c86e3b;
                 --love-accent-2: #2e6d63;
                 --love-line: #e7d8c8;
+                --love-sidebar-bg-start: #fff8f0;
+                --love-sidebar-bg-end: #f4ede4;
+                --love-hero-start: #fff8ef;
+                --love-hero-mid: #fbe9d8;
+                --love-hero-end: #e6f1ec;
+                --love-radial-1: #f3d8bf;
+                --love-radial-2: #cde2d9;
+                --love-bg-top: #fbf7f2;
+                --love-shadow: rgba(65, 42, 24, 0.08);
+            }
+
+            /* ---- Dark mode overrides ---- */
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --love-bg: #1a1612;
+                    --love-card: #23201b;
+                    --love-ink: #ede4d8;
+                    --love-soft: #b09a84;
+                    --love-accent: #e08a52;
+                    --love-accent-2: #5bb8a8;
+                    --love-line: #3d342a;
+                    --love-sidebar-bg-start: #1e1a15;
+                    --love-sidebar-bg-end: #15120e;
+                    --love-hero-start: #2a241d;
+                    --love-hero-mid: #302518;
+                    --love-hero-end: #1a2a25;
+                    --love-radial-1: rgba(80, 55, 30, 0.35);
+                    --love-radial-2: rgba(35, 75, 62, 0.30);
+                    --love-bg-top: #1a1612;
+                    --love-shadow: rgba(0, 0, 0, 0.30);
+                }
+            }
+
+            /* Also respond to Streamlit's built-in theme data attribute */
+            [data-theme="dark"] {
+                --love-bg: #1a1612;
+                --love-card: #23201b;
+                --love-ink: #ede4d8;
+                --love-soft: #b09a84;
+                --love-accent: #e08a52;
+                --love-accent-2: #5bb8a8;
+                --love-line: #3d342a;
+                --love-sidebar-bg-start: #1e1a15;
+                --love-sidebar-bg-end: #15120e;
+                --love-hero-start: #2a241d;
+                --love-hero-mid: #302518;
+                --love-hero-end: #1a2a25;
+                --love-radial-1: rgba(80, 55, 30, 0.35);
+                --love-radial-2: rgba(35, 75, 62, 0.30);
+                --love-bg-top: #1a1612;
+                --love-shadow: rgba(0, 0, 0, 0.30);
             }
 
             .stApp {
                 background:
-                    radial-gradient(circle at 15% 20%, #f3d8bf 0%, rgba(243,216,191,0.0) 34%),
-                    radial-gradient(circle at 80% 15%, #cde2d9 0%, rgba(205,226,217,0.0) 33%),
-                    linear-gradient(180deg, #fbf7f2 0%, var(--love-bg) 100%);
+                    radial-gradient(circle at 15% 20%, var(--love-radial-1) 0%, transparent 34%),
+                    radial-gradient(circle at 80% 15%, var(--love-radial-2) 0%, transparent 33%),
+                    linear-gradient(180deg, var(--love-bg-top) 0%, var(--love-bg) 100%);
                 color: var(--love-ink);
                 font-family: "Source Sans 3", sans-serif;
             }
@@ -156,17 +208,46 @@ def _inject_styles() -> None:
                 color: var(--love-ink);
             }
 
+            /* Ensure all text inherits the ink color */
+            .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
+            .stApp .stMarkdown, .stApp .stText {
+                color: var(--love-ink);
+            }
+
+            /* Chat message text */
+            .stChatMessage, .stChatMessage p, .stChatMessage span {
+                color: var(--love-ink) !important;
+            }
+
+            /* Sidebar */
             div[data-testid="stSidebar"] {
-                background: linear-gradient(180deg, #fff8f0 0%, #f4ede4 100%);
+                background: linear-gradient(180deg, var(--love-sidebar-bg-start) 0%, var(--love-sidebar-bg-end) 100%);
                 border-right: 1px solid var(--love-line);
             }
 
+            div[data-testid="stSidebar"], div[data-testid="stSidebar"] p,
+            div[data-testid="stSidebar"] span, div[data-testid="stSidebar"] label,
+            div[data-testid="stSidebar"] .stMarkdown {
+                color: var(--love-ink);
+            }
+
+            /* Sidebar buttons */
+            div[data-testid="stSidebar"] button {
+                color: var(--love-ink) !important;
+                border-color: var(--love-line) !important;
+            }
+
+            /* Expander headers in sidebar */
+            div[data-testid="stSidebar"] details summary span {
+                color: var(--love-ink) !important;
+            }
+
             .love-hero {
-                background: linear-gradient(120deg, #fff8ef 0%, #fbe9d8 45%, #e6f1ec 100%);
+                background: linear-gradient(120deg, var(--love-hero-start) 0%, var(--love-hero-mid) 45%, var(--love-hero-end) 100%);
                 border: 1px solid var(--love-line);
                 border-radius: 20px;
                 padding: 22px 24px;
-                box-shadow: 0 12px 30px rgba(65, 42, 24, 0.08);
+                box-shadow: 0 12px 30px var(--love-shadow);
                 margin-bottom: 8px;
                 animation: fadeUp 320ms ease-out;
             }
@@ -182,6 +263,30 @@ def _inject_styles() -> None:
                 margin: 10px 0 0;
                 color: var(--love-soft);
                 font-size: 1.05rem;
+            }
+
+            /* Header action buttons */
+            .stApp button {
+                color: var(--love-ink);
+            }
+
+            /* Chat input */
+            .stChatInput, .stChatInput textarea {
+                color: var(--love-ink) !important;
+                background-color: var(--love-card) !important;
+                border-color: var(--love-line) !important;
+            }
+
+            /* Selectbox / dropdowns */
+            .stSelectbox div[data-baseweb="select"] {
+                color: var(--love-ink);
+                background-color: var(--love-card);
+            }
+
+            /* Expander content */
+            details {
+                background-color: var(--love-card) !important;
+                border-color: var(--love-line) !important;
             }
 
             @keyframes fadeUp {

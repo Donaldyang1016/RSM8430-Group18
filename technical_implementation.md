@@ -2,7 +2,9 @@
 
 **RSM 8430 | Group 18**
 
-This document explains how the current version of L.O.V.E. works end-to-end, including architecture, retrieval design, memory/state, guardrails, evaluation, and UI system behavior.
+This document explains how L.O.V.E. works end-to-end, including architecture, retrieval design, memory/state, guardrails, evaluation, and UI system behavior.
+
+**Live Demo:** https://rsm8430-group18-mt3nu7g4geqgvsmfq97ikn.streamlit.app/
 
 ---
 
@@ -61,12 +63,8 @@ High-level characteristics:
 
 ## 3) Retrieval Pipeline (Hybrid)
 
-### Why It Changed
-Previous retrieval was pure vector top-k.  
-Current retrieval uses hybrid scoring to improve robustness on paraphrases and keyword-heavy user phrasing.
-
-### Current Retrieval Design
-Implemented in `rag/retriever.py`:
+### Retrieval Design
+Implemented in `rag/retriever.py`, using hybrid scoring to improve robustness on paraphrases and keyword-heavy user phrasing:
 
 1. Vector candidate retrieval from Chroma (`candidate_pool`)
 2. Lexical scoring over full corpus (BM25-style)
@@ -130,7 +128,7 @@ UI displays sources in a collapsible section for readability.
 ## 5) Agentic Control Layer
 
 ### 5.1 Safety (`agent/safety.py`)
-Regex-first screening categories:
+Regex-first screening categories (ordered by severity):
 - crisis
 - abuse
 - medical
@@ -138,8 +136,7 @@ Regex-first screening categories:
 - injection
 - out_of_scope
 
-Important update:
-- check order now prioritizes crisis/abuse before injection to avoid mis-prioritization in mixed-risk messages.
+Crisis and abuse patterns are evaluated first to avoid mis-prioritization in mixed-risk messages.
 
 ### 5.2 Router (`agent/router.py`)
 Intent classes:
@@ -163,9 +160,9 @@ Actions implemented:
 - Save plan
 - Retrieve plan
 
-Key fixes:
-- cold-start trigger text is no longer stored as `issue`
-- in-progress slot flow is not bypassed by rich-context auto generation
+Design notes:
+- Cold-start trigger text is not stored as the `issue` slot
+- In-progress slot flow is not bypassed by rich-context auto generation
 
 Plan generation supports:
 - slot-based flow (`issue -> goal -> tone`)
@@ -181,10 +178,10 @@ Tables:
 - `messages`
 - `action_state`
 - `saved_plans`
-- `user_profiles` (new)
+- `user_profiles`
 
-### Message History Fix
-`load_messages()` in `state/store.py` now correctly returns the most recent N messages while preserving chronological order in prompt formatting.
+### Message History
+`load_messages()` in `state/store.py` returns the most recent N messages in chronological order for prompt formatting.
 
 ### Structured Profile Memory
 `agent/memory.py` infers and persists profile signals from user messages:
@@ -268,9 +265,10 @@ Environment variables:
 `app/main.py` now includes a redesigned interaction system:
 
 ### Visual System
-- custom color palette and typographic hierarchy
-- gradient-backed hero container
-- cleaner layout spacing and hierarchy
+- Custom color palette and typographic hierarchy
+- Gradient-backed hero container
+- Light / dark mode support via CSS custom properties and `prefers-color-scheme` media query
+- Cleaner layout spacing and hierarchy
 
 ### Guided Interaction
 - quick action buttons:
@@ -314,10 +312,43 @@ Environment variables:
 
 ---
 
-## Implementation Status
+## Repository Structure
 
-This document reflects the current codebase state after the optimization pass that added:
-- hybrid retrieval,
-- profile memory,
-- evaluation harness,
-- and UI/UX redesign.
+```
+RSM8430-Group18/
+├── app/                        # Streamlit frontend + LLM client + prompt templates
+│   ├── __init__.py
+│   ├── main.py
+│   ├── prompts.py
+│   └── llm_client.py
+├── agent/                      # Safety, routing, actions, session memory
+│   ├── __init__.py
+│   ├── router.py
+│   ├── safety.py
+│   ├── actions.py
+│   └── memory.py
+├── rag/                        # Index builder + hybrid retriever + formatting
+│   ├── __init__.py
+│   ├── build_index.py
+│   ├── retriever.py
+│   └── formatting.py
+├── state/                      # SQLite schema + CRUD helpers
+│   ├── __init__.py
+│   ├── schema.sql
+│   └── store.py
+├── evaluation/                 # Automated test harness + golden cases
+│   ├── __init__.py
+│   ├── test_cases.json
+│   ├── run_eval.py
+│   ├── results.csv             # Generated
+│   └── summary.json            # Generated
+├── data/
+│   ├── filtered_counselchat.csv
+│   ├── chroma_db/              # Generated (git-ignored)
+│   └── love_agent.db           # Generated (git-ignored)
+├── .env.example
+├── .gitignore
+├── technical_implementation.md
+├── requirements.txt
+└── README.md
+```
