@@ -21,6 +21,9 @@ The system uses **Retrieval-Augmented Generation (RAG)** grounded on 225 curated
 A deployed version of the app is available at:  
 **https://rsm8430-group18-mt3nu7g4geqgvsmfq97ikn.streamlit.app/**
 
+To watch our recorded demo video, please follow the YouTube link at:
+**https://www.youtube.com/watch?v=jEcYYLnz-lo**
+
 ---
 
 ## Architecture Overview
