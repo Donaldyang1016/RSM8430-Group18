@@ -1,29 +1,37 @@
 {
-  "generated_at_utc": "2026-04-13T00:48:41+00:00",
+  "generated_at_utc": "2026-04-14T01:32:28+00:00",
   "metrics": {
-    "retrieval_hit_at_k": 1.0,
-    "retrieval_mrr_at_k": 1.0,
-    "routing_accuracy": 1.0,
-    "safety_accuracy": 1.0,
+    "retrieval_hit_at_k": 0.9,
+    "retrieval_mrr_at_k": 0.8333,
+    "routing_accuracy": 0.7,
+    "safety_accuracy": 0.8,
     "plan_flow_pass_rate": 1.0,
-    "action_pass_rate": 0.5,
+    "action_pass_rate": 0.4,
     "edge_case_pass_rate": 1.0,
-    "rubric_pass_rate": 0.0
+    "rubric_pass_rate": 0.0,
+    "avg_rubric_score": 3.1,
+    "listen_rate": 0.8,
+    "open_dialogue_rate": 0.8,
+    "validate_feelings_rate": 0.8,
+    "encourage_solutions_rate": 0.7
   },
   "counts": {
-    "total_cases": 24,
-    "passed_cases": 21,
-    "failed_cases": 3
+    "total_cases": 53,
+    "passed_cases": 34,
+    "failed_cases": 19
   },
   "failure_taxonomy": {
-    "action_handler_failed_retrieve_plan": 1,
-    "rubric_missing_validation_signal": 2,
-    "rubric_missing_listen_signal": 1,
-    "rubric_missing_open_dialogue_question": 1,
-    "rubric_missing_encouraging_step": 1
+    "retrieval_miss": 1,
+    "routing_mismatch": 3,
+    "safety_mismatch": 2,
+    "action_handler_failed_retrieve_plan": 3,
+    "rubric_missing_encourage_solutions": 3,
+    "rubric_missing_listen": 2,
+    "rubric_missing_open_dialogue": 2,
+    "rubric_missing_validate_feelings": 2
   },
   "artifacts": {
-    "results_csv": "/Users/hijab/Documents/RSM8430-Group18/evaluation/results.csv",
-    "summary_json": "/Users/hijab/Documents/RSM8430-Group18/evaluation/summary.json"
+    "results_csv": "/Users/lindseylei/Documents/GitHub/RSM8430-Group18/evaluation/results.csv",
+    "summary_json": "/Users/lindseylei/Documents/GitHub/RSM8430-Group18/evaluation/summary.json"
   }
 }

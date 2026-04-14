@@ -4,9 +4,11 @@ Evaluation harness for the L.O.V.E. agent.
 Includes:
 1) Retrieval metrics: Hit@k and MRR@k on a small golden set
 2) Routing and safety accuracy checks
-3) Build-plan flow regression check
-4) Binary L.O.V.E.-style rubric checks
-5) Failure taxonomy summary
+3) Build-plan flow regression check (multi-turn action)
+4) Save / retrieve plan action checks (single-turn actions)
+5) Edge-case / error-handling checks (empty input, gibberish, mid-flow switch)
+6) L.O.V.E.-style rubric checks with per-dimension scoring
+7) Failure taxonomy summary
 
 Run:
     python evaluation/run_eval.py
@@ -28,7 +30,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent.actions import handle_build_plan
+from agent.actions import (
+    handle_build_plan,
+    handle_retrieve_plan,
+    handle_save_plan,
+)
 from agent.memory import SessionMemory
 from agent.router import classify_intent
 from agent.safety import screen_message
@@ -39,7 +45,7 @@ try:
 
     _HAS_RETRIEVER = True
     _RETRIEVER_IMPORT_ERROR = ""
-except Exception as exc:  # pragma: no cover - fallback for missing local deps
+except Exception as exc:  # pragma: no cover
     _HAS_RETRIEVER = False
     _RETRIEVER_IMPORT_ERROR = str(exc)
 
@@ -56,34 +62,52 @@ def _load_cases() -> dict[str, Any]:
 
 def _rubric_checks(text: str) -> dict[str, int]:
     lower = text.lower()
+
     checks = {
-        "listen_signal": int(
+        # 1. LISTEN
+        "listen": int(
             bool(
                 re.search(
-                    r"(it sounds like|i hear you|what you're describing|it seems like)",
+                    r"(it sounds like|i hear you|i can hear that|what you're describing|it seems like|i get that|from what you're saying)",
                     lower,
                 )
             )
         ),
-        "open_dialogue_question": int(bool("?" in text)),
-        "validation_signal": int(
+
+        # 2. OPEN DIALOGUE
+        "open_dialogue": int(
             bool(
-                re.search(
-                    r"(that sounds|it makes sense|anyone would feel|totally understandable)",
+                "?" in text
+                or re.search(
+                    r"(can you tell me more|what usually happens|how long has this been going on|what do you think|how do you feel|what happens when)",
                     lower,
                 )
             )
         ),
-        "encouraging_step": int(
+
+        # 3. VALIDATE FEELINGS
+        "validate_feelings": int(
             bool(
                 re.search(
-                    r"(one step|could be|might help|would you like|feel doable)",
+                    r"(that sounds|that must be|it makes sense|it makes complete sense|anyone would feel|totally understandable|i can see why|i understand why|that must be really|that seems really)",
+                    lower,
+                )
+            )
+        ),
+
+        # 4. ENCOURAGE SOLUTIONS
+        "encourage_solutions": int(
+            bool(
+                re.search(
+                    r"(one step|a helpful step|you could try|it might help|you might consider|would it help|could it help|one thing you might try|something that could help)",
                     lower,
                 )
             )
         ),
     }
-    checks["overall_pass"] = int(all(v == 1 for v in checks.values()))
+    checks["rubric_score"] = sum(checks.values())
+    checks["rubric_pass"] = int(all(v == 1 for v in checks.values()))
+
     return checks
 
 
@@ -263,17 +287,154 @@ def run_eval(k: int = 3) -> None:
         )
 
     # ------------------------------------------------------------------
-    # Binary rubric checks
+    # Single-turn actions: save_plan, retrieve_plan
+    # ------------------------------------------------------------------
+    action_cases = cases.get("actions", [])
+    action_passes = 0
+    for case in action_cases:
+        session_id = create_session()
+        memory = SessionMemory(session_id)
+
+        intent, _ = classify_intent(case["intent_text"], action_state=None, llm_fn=None)
+        intent_ok = intent == case["expected_intent"]
+
+        action_ok = False
+        details: dict[str, Any] = {
+            "expected_intent": case["expected_intent"],
+            "actual_intent": intent,
+        }
+
+        seed_plan: dict[str, Any] | None = None
+        if case.get("requires_existing_plan"):
+            seed_messages = [
+                "help me build a conversation plan",
+                "i feel unheard when we argue about chores",
+                "i want us to agree on a fair plan and stop blaming each other",
+                "gentle but direct",
+            ]
+            for msg in seed_messages:
+                result = handle_build_plan(msg, memory, _fake_plan_llm)
+            seed_plan = result.get("plan") if result.get("type") == "plan" else None
+
+        if case["expected_intent"] == "save_plan":
+            outcome = handle_save_plan(session_id, seed_plan)
+            action_ok = bool(outcome.get("success"))
+            details["action_success"] = outcome.get("success")
+            details["action_message"] = outcome.get("message", "")[:120]
+
+        elif case["expected_intent"] == "retrieve_plan":
+            if seed_plan is not None:
+                handle_save_plan(session_id, seed_plan)
+            outcome = handle_retrieve_plan(session_id)
+            message = outcome.get("message", "")
+            expected_substrings = case.get("expected_response_contains", [])
+            substr_hits = all(s.lower() in message.lower() for s in expected_substrings)
+            action_ok = bool(outcome.get("success")) and substr_hits
+            details["action_success"] = outcome.get("success")
+            details["substring_hits"] = substr_hits
+            details["plans_returned"] = len(outcome.get("plans", []))
+
+        passed = intent_ok and action_ok
+        action_passes += int(passed)
+        if not passed:
+            if not intent_ok:
+                taxonomy["action_routing_mismatch"] += 1
+            if not action_ok:
+                taxonomy[f"action_handler_failed_{case['expected_intent']}"] += 1
+
+        results_rows.append(
+            {
+                "component": "actions",
+                "case_id": case["id"],
+                "pass": int(passed),
+                "details": json.dumps(details, ensure_ascii=False),
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Edge cases: empty input, gibberish, mid-flow topic switch
+    # ------------------------------------------------------------------
+    edge_cases = cases.get("edge_cases", [])
+    edge_passes = 0
+    for case in edge_cases:
+        details: dict[str, Any] = {"description": case.get("description", "")}
+        passed = False
+        try:
+            if "messages" in case:
+                session_id = create_session()
+                memory = SessionMemory(session_id)
+                final_intent: str | None = None
+                for msg in case["messages"]:
+                    state = memory.get_action_state()
+                    final_intent, _ = classify_intent(msg, action_state=state, llm_fn=None)
+                    if final_intent == "build_plan":
+                        handle_build_plan(msg, memory, _fake_plan_llm)
+                expected = case["expected_final_intent"]
+                passed = final_intent == expected
+                details["expected_final_intent"] = expected
+                details["actual_final_intent"] = final_intent
+
+            else:
+                text = case.get("text", "")
+                if "expected_category" in case:
+                    verdict = screen_message(text)
+                    passed = (
+                        verdict["category"] == case["expected_category"]
+                        and verdict["safe"] == case.get("expected_safe", False)
+                    )
+                    details["expected_category"] = case["expected_category"]
+                    details["actual_category"] = verdict["category"]
+                    details["actual_safe"] = verdict["safe"]
+                elif "expected_intent" in case:
+                    intent, _ = classify_intent(text, action_state=None, llm_fn=None)
+                    passed = intent == case["expected_intent"]
+                    details["expected_intent"] = case["expected_intent"]
+                    details["actual_intent"] = intent
+        except Exception as exc:
+            details["exception"] = f"{type(exc).__name__}: {exc}"
+            passed = False
+            taxonomy["edge_case_exception"] += 1
+
+        edge_passes += int(passed)
+        if not passed and "exception" not in details:
+            taxonomy["edge_case_mismatch"] += 1
+
+        results_rows.append(
+            {
+                "component": "edge_cases",
+                "case_id": case["id"],
+                "pass": int(passed),
+                "details": json.dumps(details, ensure_ascii=False),
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # Rubric checks
     # ------------------------------------------------------------------
     rubric_cases = cases.get("rubric_samples", [])
     rubric_passes = 0
+    rubric_total_score = 0
+
+    listen_hits = 0
+    open_dialogue_hits = 0
+    validate_feelings_hits = 0
+    encourage_solutions_hits = 0
+
     for case in rubric_cases:
         checks = _rubric_checks(case["text"])
-        passed = checks["overall_pass"] == 1
+
+        passed = checks["rubric_pass"] == 1
         rubric_passes += int(passed)
+        rubric_total_score += checks["rubric_score"]
+
+        listen_hits += checks["listen"]
+        open_dialogue_hits += checks["open_dialogue"]
+        validate_feelings_hits += checks["validate_feelings"]
+        encourage_solutions_hits += checks["encourage_solutions"]
+
         if not passed:
             for key, value in checks.items():
-                if key != "overall_pass" and value == 0:
+                if key not in ("rubric_score", "rubric_pass") and value == 0:
                     taxonomy[f"rubric_missing_{key}"] += 1
 
         results_rows.append(
@@ -297,6 +458,8 @@ def run_eval(k: int = 3) -> None:
     routing_total = max(len(routing_cases), 1)
     safety_total = max(len(safety_cases), 1)
     plan_total = max(len(plan_cases), 1)
+    action_total = max(len(action_cases), 1)
+    edge_total = max(len(edge_cases), 1)
     rubric_total = max(len(rubric_cases), 1)
 
     summary = {
@@ -311,7 +474,14 @@ def run_eval(k: int = 3) -> None:
             "routing_accuracy": round(routing_passes / routing_total, 4),
             "safety_accuracy": round(safety_passes / safety_total, 4),
             "plan_flow_pass_rate": round(plan_passes / plan_total, 4),
+            "action_pass_rate": round(action_passes / action_total, 4),
+            "edge_case_pass_rate": round(edge_passes / edge_total, 4),
             "rubric_pass_rate": round(rubric_passes / rubric_total, 4),
+            "avg_rubric_score": round(rubric_total_score / rubric_total, 4),
+            "listen_rate": round(listen_hits / rubric_total, 4),
+            "open_dialogue_rate": round(open_dialogue_hits / rubric_total, 4),
+            "validate_feelings_rate": round(validate_feelings_hits / rubric_total, 4),
+            "encourage_solutions_rate": round(encourage_solutions_hits / rubric_total, 4),
         },
         "counts": {
             "total_cases": len(results_rows),
