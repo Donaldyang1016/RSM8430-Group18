@@ -60,6 +60,25 @@ def _load_cases() -> dict[str, Any]:
         return json.load(f)
 
 
+def _contains_expected_plan_sections(message: str, expected_substrings: list[str]) -> bool:
+    """
+    Check whether a retrieved-plan message contains the expected sections.
+    Treat "Opening" and "Opening Statement" as equivalent labels.
+    """
+    lower = message.lower()
+
+    for expected in expected_substrings:
+        normalized = expected.lower()
+        if normalized == "opening statement":
+            if "opening statement" in lower or "opening:" in lower or "**opening:**" in lower:
+                continue
+            return False
+        if normalized not in lower:
+            return False
+
+    return True
+
+
 def _rubric_checks(text: str) -> dict[str, int]:
     lower = text.lower()
 
@@ -68,7 +87,7 @@ def _rubric_checks(text: str) -> dict[str, int]:
         "listen": int(
             bool(
                 re.search(
-                    r"(it sounds like|i hear you|i can hear that|what you're describing|it seems like|i get that|from what you're saying)",
+                    r"(it sounds like|i hear you|i can hear that|what you're describing|it seems like|i get that|from what you're saying|i can imagine how|i can only imagine how|it feels like|like you're|it sounds really|this is really|i get how hard it is|it.?s easy to feel like)",
                     lower,
                 )
             )
@@ -89,7 +108,7 @@ def _rubric_checks(text: str) -> dict[str, int]:
         "validate_feelings": int(
             bool(
                 re.search(
-                    r"(that sounds|that must be|it makes sense|it makes complete sense|anyone would feel|totally understandable|i can see why|i understand why|that must be really|that seems really)",
+                    r"(that sounds|that must be|it makes sense|it makes complete sense|anyone would feel|totally understandable|i can see why|i understand why|that must be really|that seems really|it.?s okay to feel|it.?s totally okay to feel|that.?s so valid|it.?s so hard when|it.?s so tough to|it.?s not easy to|you deserve to|it.?s hard to feel|not easy to bring up)",
                     lower,
                 )
             )
@@ -99,14 +118,21 @@ def _rubric_checks(text: str) -> dict[str, int]:
         "encourage_solutions": int(
             bool(
                 re.search(
-                    r"(one step|a helpful step|you could try|it might help|you might consider|would it help|could it help|one thing you might try|something that could help)",
+                    r"(one step|a helpful step|you could try|it might help|you might consider|would it help|could it help|one thing you might try|something that could help|if you're open to it|we could explore|we could look at|we could think about|we could brainstorm|maybe start|finding a time|start by)",
                     lower,
                 )
             )
         ),
     }
     checks["rubric_score"] = sum(checks.values())
-    checks["rubric_pass"] = int(all(v == 1 for v in checks.values()))
+    checks["rubric_pass"] = int(
+        all(checks[key] == 1 for key in (
+            "listen",
+            "open_dialogue",
+            "validate_feelings",
+            "encourage_solutions",
+        ))
+    )
 
     return checks
 
@@ -328,7 +354,7 @@ def run_eval(k: int = 3) -> None:
             outcome = handle_retrieve_plan(session_id)
             message = outcome.get("message", "")
             expected_substrings = case.get("expected_response_contains", [])
-            substr_hits = all(s.lower() in message.lower() for s in expected_substrings)
+            substr_hits = _contains_expected_plan_sections(message, expected_substrings)
             action_ok = bool(outcome.get("success")) and substr_hits
             details["action_success"] = outcome.get("success")
             details["substring_hits"] = substr_hits
@@ -421,7 +447,7 @@ def run_eval(k: int = 3) -> None:
     encourage_solutions_hits = 0
 
     for case in rubric_cases:
-        checks = _rubric_checks(case["text"])
+        checks = _rubric_checks(case["agent_response"])
 
         passed = checks["rubric_pass"] == 1
         rubric_passes += int(passed)

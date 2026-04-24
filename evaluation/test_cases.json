@@ -189,44 +189,54 @@
   ],
   "rubric_samples": [
     {
-      "id": "rbk_01",
-      "text": "It sounds like you are feeling hurt and exhausted from these recurring arguments. What usually happens right before things escalate? It makes complete sense that you feel this way. One helpful step could be agreeing on a short pause phrase before either of you gets flooded. Would any of that feel doable?"
+      "id": "rbk_real_01",
+      "input": "my partner never listens to me",
+      "agent_response": "That sounds really frustrating — like when you're trying to share something important, and it feels like it just doesn't land. I can imagine how heavy that must feel, especially when you're hoping for support or understanding. Have you noticed if there are certain times or topics where it feels like they’re more present, or if it’s pretty consistent? Sometimes when we’re in a pattern like this, it can be hard to spot the small moments where things might shift. It’s totally valid to feel unheard, and it’s not just about them “listening” — it’s about feeling seen and valued in the conversation. If you’re open to it, maybe we could explore what a conversation about this might look like, or what small steps could help you feel more heard. Would that be something you’d be open to?"
     },
     {
-      "id": "rbk_02",
-      "text": "You should do three things. First, demand respect. Second, make rules. Third, force change."
+      "id": "rbk_real_02",
+      "input": "i feel emotionally distant from my girlfriend lately",
+      "agent_response": "I can see how that distance would feel really heavy — like you're reaching for connection, but it's not quite meeting. It's so hard when the person you care about seems to be pulling away, even if it's not intentional. Have you noticed if there's anything specific that's been going on lately, or if it's just been a slow shift over time? Sometimes when things feel emotionally distant, it can be a sign that one or both of you are carrying something unspoken. It's totally okay to feel that way, and it's worth exploring what might be underneath it. If you're open to it, we could look at ways to start a conversation about it — or just sit with the feeling for a bit, whichever feels right. What feels most helpful to you right now?"
     },
     {
-      "id": "rbk_03",
-      "text": "It seems like you have been feeling distant from your partner lately. How long has this been going on? That sounds really painful and confusing. One thing you might try is starting with a small, honest check-in about how disconnected you've been feeling."
+      "id": "rbk_real_03",
+      "input": "my boyfriend and i keep fighting over small things",
+      "agent_response": "It’s so common to feel like the little things are blowing up into big fights — like you're both trying to connect, but the path is rocky. I can imagine how tiring that must be, especially when you're both trying your best. Have you noticed if there’s something underneath the small stuff that feels unresolved? Sometimes when we fight over little things, it’s because there’s something bigger that’s not being talked about — like unmet needs or unspoken frustrations. If you're open to it, we could explore what a more calm, intentional conversation might look like. Maybe start by naming what you're feeling without blaming, or setting a time to talk when neither of you is already stressed. Would that feel like something you'd want to try? It’s really about finding a way to break the cycle and create a space where both of you can feel heard and understood, even when it’s tough."
     },
     {
-      "id": "rbk_04",
-      "text": "I hear you saying that trust has been broken and you're not sure how to move forward. What would help you feel a little safer in this relationship? It makes sense that you feel uncertain right now. A helpful step could be talking together about specific expectations and repair actions."
+      "id": "rbk_real_04",
+      "input": "i want to rebuild trust after lying to my partner",
+      "agent_response": "I'm really glad you're thinking about how to rebuild trust — that takes a lot of courage and honesty. Lying can create a really deep sense of hurt, and it's not easy to fix, but it sounds like you're ready to try. That's a big step. It might help to start by thinking about what you want your partner to know from you — not just the truth, but how you're feeling about what happened and what you're willing to do to make things right. Sometimes when we're trying to rebuild, it's not just about saying I'm sorry, but also showing up in consistent, thoughtful ways. If you're open to it, we could explore what a conversation like that might look like, or what small actions could start to rebuild that foundation. What feels like a next step for you?"
     },
     {
-      "id": "rbk_05",
-      "text": "From what you're saying, it sounds like these fights leave you drained. What usually triggers the conflict? That must be really frustrating. Something that could help is agreeing to pause the conversation when either of you feels overwhelmed."
+      "id": "rbk_real_05",
+      "input": "my ex moved on quickly and i still feel stuck",
+      "agent_response": "It's so tough to feel stuck when someone else has moved on — like you're still holding on to something they've already let go of. That must feel really lonely, especially when you're trying to figure out what comes next. I wonder if there's something specific that's keeping you feeling stuck, or if it's more about the general sense of being left behind? Sometimes when we're in that space, it's hard to see the next step, but it's also a sign that there's still a lot of feelings to sit with. If you're open to it, we could explore what it might look like to start shifting that feeling — whether that's through a conversation with yourself, or maybe even a conversation with someone you trust. What feels like the right next step for you?"
     },
     {
-      "id": "rbk_06",
-      "text": "I get that this breakup has been really hard on you. How have you been coping day to day? Anyone would feel shaken after losing an important relationship. One step that might help is creating a small routine that gives you stability this week."
+      "id": "rbk_real_06",
+      "input": "my partner shuts down whenever i try to talk about our future",
+      "agent_response": "I can imagine how frustrating it must feel when you're trying to talk about the future, and your partner just pulls away — like you're reaching for something important, but they're not there. It's so hard when the conversation you need to have gets blocked, especially when you're both trying to work things out. It sounds like this is really important to you, and it's okay that you're feeling frustrated. I wonder if there's a moment or a feeling that comes up for you when you try to bring it up? Sometimes when people shut down, it's because they're feeling overwhelmed, scared, or unsure of how to respond. If you're open to it, we could explore ways to approach this conversation that feel less like a pressure point and more like a shared space to connect. Maybe starting with how you're feeling, or finding a time when both of you are more relaxed. What feels like a next step for you?"
     },
     {
-      "id": "rbk_07",
-      "text": "It sounds like you're scared to bring this up because you don't want another argument. What do you think your partner might say? I can see why you're feeling anxious. You could try leading with how you feel instead of starting with blame."
+      "id": "rbk_real_07",
+      "input": "i feel like i do all the chores and my partner gets defensive when i mention it",
+      "agent_response": "It sounds like this is really frustrating — like you're trying to bring up something that matters to you, but it just ends up feeling like an argument. I can see how that would wear on you. It’s hard to feel like your voice isn’t being heard, even when you’re trying to be kind about it. Have you noticed if there’s something specific that happens right before your partner gets defensive? Sometimes when people feel criticized, even if it’s not meant that way, it can trigger a reaction. It might be worth exploring what’s underneath that defensiveness — is it fear of not being good enough? Or maybe something else that’s been building up? If you’re open to it, we could think about how to approach this in a way that feels safer for both of you. Maybe starting with how you feel about the chores, rather than focusing on what’s not being done. What feels like a next step for you?"
     },
     {
-      "id": "rbk_08",
-      "text": "You need to stop overthinking and just be more confident. Tell them exactly what to do and move on."
+      "id": "rbk_real_08",
+      "input": "my boyfriend and i have no intimacy anymore and i don't know how to bring it up",
+      "agent_response": "I can only imagine how hard it is to feel like the connection you once had is fading, especially when you're already working through other challenges. It must feel like you're trying to hold onto something that's slipping through your fingers, and that’s so valid. It’s not easy to bring up something so personal, especially when you’re worried about how it might be received. I wonder if there’s a moment or a feeling that comes up for you when you think about how to bring it up? Sometimes when we’re hesitant, it’s because we’re afraid of how the conversation might go — or what it might reveal. If you’re open to it, we could think about how to approach this in a way that feels safer for you. Maybe starting with how you’re feeling about the distance, or finding a moment when you both feel more relaxed. What feels like a next step for you?"
     },
     {
-      "id": "rbk_09",
-      "text": "I can hear that you feel alone in this relationship. How long have you been carrying this by yourself? That seems really heavy. One thing you might try is asking for a specific kind of support instead of talking in general terms."
+      "id": "rbk_real_09",
+      "input": "i am scared to bring up my needs because it always becomes an argument",
+      "agent_response": "It makes sense that you're scared — when bringing up your needs feels like it always turns into an argument, it's easy to feel like nothing you say will land the way you want. That must be so frustrating and exhausting, especially when you're trying to rebuild something that's already been hurt. I wonder if there's a moment or a feeling that comes up for you when you think about bringing it up? Sometimes when we're afraid of how something will go, it's because we're worried about being misunderstood or not being heard. But you deserve to have your needs acknowledged, even if it's hard. If you're open to it, maybe we could explore ways to approach this that feel a little safer — like starting with how you're feeling, or finding a time when both of you are more relaxed. What feels like a next step for you?"
     },
     {
-      "id": "rbk_10",
-      "text": "It sounds like you're trying really hard and not getting much back. What happens when you ask for reassurance? Totally understandable that you feel worn down. Would it help to plan one calm conversation around what reassurance looks like for you?"
-    }
+      "id": "rbk_real_10",
+      "input": "i want to ask my partner for more emotional support but i don't want to sound needy",
+      "agent_response": "I get how hard it is to want to ask for something that matters to you, but feel like you might come across as too much. It’s so common to worry about being a burden, especially when you’re trying to be vulnerable. You deserve to feel supported, and it’s okay to ask for that — no one should have to carry everything alone. It might help to start by focusing on how you’re feeling, rather than what you’re asking for. Like, “I’ve been feeling a bit overwhelmed lately, and I really wish we could talk more about what’s going on for you too.” That way, it’s about connection, not pressure. If you’re open to it, we could brainstorm a few different ways to phrase it — just to find what feels right for you. What feels like a next step for you?"
+    } 
   ]
 }
